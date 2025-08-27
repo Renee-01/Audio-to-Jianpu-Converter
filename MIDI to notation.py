@@ -172,3 +172,4 @@ if os.path.exists(output_pdf):
     print("✅ PDF 已開啟。")
 else:
     print("❌ PDF 產出失敗。")
+    
