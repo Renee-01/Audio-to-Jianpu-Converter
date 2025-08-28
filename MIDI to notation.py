@@ -16,17 +16,7 @@ class NoteStruct:
 
 # ======== 音高轉簡譜 ========
 
-UNITS_PER_QUARTER = 16  
 
-def get_units_per_bar(numerator: int, denominator: int) -> int:
-    """
-    numerator: 分子 (例如 3/4 的 3)
-    denominator: 分母 (例如 3/4 的 4, 6/8 的 8)
-    """
-    # 換算成 quarter note 為基準
-    quarter_equiv = 4 / denominator   # 例如 3/4 → 1, 6/8 → 0.5
-    units_per_note = UNITS_PER_QUARTER * quarter_equiv
-    return int(numerator * units_per_note)
 
 def midi_to_jianpu(pitch: int) -> str:
     scale_map = {
@@ -44,20 +34,13 @@ def midi_to_jianpu(pitch: int) -> str:
     else: return base
 
 # ======== 拍數分類（含附點） ========
-def quantize_beats(duration: float, beat_duration: float) -> float:
-    if duration < beat_duration / 16: return 0.0625
-    elif duration < beat_duration / 16 * 1.5: return 0.09375
-    elif duration < beat_duration / 8: return 0.125
-    elif duration < beat_duration / 8 * 1.5: return 0.1875
-    elif duration < beat_duration / 4: return 0.25
-    elif duration < beat_duration / 4 * 1.5: return 0.375
-    elif duration < beat_duration / 2: return 0.5
-    elif duration < beat_duration / 2 * 1.5: return 0.75
-    elif duration < beat_duration: return 1
-    elif duration < beat_duration * 1.5: return 1.5
-    elif duration < beat_duration * 2: return 2
-    elif duration < beat_duration * 2 * 1.5: return 3
-    else: return 4
+def quantize_units(duration_sec: float, sec_per_unit: float) -> int:
+    """
+    把音的時長 (秒) 轉換成「格數」
+    例如 1 拍=16格，八分=8格，四分=16格，全音=64格...
+    """
+    units = int(round(duration_sec / sec_per_unit))
+    return max(units, 1)  # 至少佔 1 格，避免 0
 
 # ======== 節奏標記轉換 ========
 def rhythm_marker(beats: float, symbol: str) -> str:
@@ -117,7 +100,6 @@ except ValueError:
     print("⚠️ 無效輸入，使用預設 BPM = 80")
     bpm = 80
 
-beat_duration = 60 / bpm
 
 # ======== 使用者輸入拍號 ========
 try:
@@ -127,8 +109,10 @@ except ValueError:
     print("⚠️ 無效輸入，使用預設 4/4")
     numerator, denominator = 4, 4
 
-units_per_bar = get_units_per_bar(numerator, denominator)
-print(f"✅ 當前拍號: {numerator}/{denominator}, 一小節 {units_per_bar} 格")
+units_per_beat = 16 # 一拍是幾格
+beat_duration = 60 / bpm # 一拍的時長
+sec_per_unit = beat_duration / units_per_beat # 一格的時長
+units_per_bar = units_per_beat * numerator # 一個小節有幾格
 
 # ======== 處理音符並轉換 ========
 midi_data = pretty_midi.PrettyMIDI(midi_path)
@@ -139,8 +123,8 @@ note_structs = []
 for note in notes:
     symbol = midi_to_jianpu(note.pitch)
     duration = note.end - note.start
-    beat_length = quantize_beats(duration, beat_duration)
-    symbol_and_rhythm = rhythm_marker(beat_length, symbol)
+    unit_length = quantize_units(duration, sec_per_unit)
+    symbol_and_rhythm = rhythm_marker(unit_length, symbol)
     note_structs.append(NoteStruct(symbol_and_rhythm, beat_length, note.start, note.end))
 
 # ======== 每小節換行輸出 ========
