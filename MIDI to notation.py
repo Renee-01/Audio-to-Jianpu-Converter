@@ -15,6 +15,19 @@ class NoteStruct:
     end: float
 
 # ======== 音高轉簡譜 ========
+
+UNITS_PER_QUARTER = 16  
+
+def get_units_per_bar(numerator: int, denominator: int) -> int:
+    """
+    numerator: 分子 (例如 3/4 的 3)
+    denominator: 分母 (例如 3/4 的 4, 6/8 的 8)
+    """
+    # 換算成 quarter note 為基準
+    quarter_equiv = 4 / denominator   # 例如 3/4 → 1, 6/8 → 0.5
+    units_per_note = UNITS_PER_QUARTER * quarter_equiv
+    return int(numerator * units_per_note)
+
 def midi_to_jianpu(pitch: int) -> str:
     scale_map = {
         0: '1', 1: '#1', 2: '2', 3: '#2', 4: '3',
@@ -64,8 +77,8 @@ def rhythm_marker(beats: float, symbol: str) -> str:
     else: return f"?{symbol}"
 
 # ======== 自動補齊不足拍的小節 ========
-def fill_rest_line(line_text, current_beat, beats_per_bar):
-    beat_remain = round(beats_per_bar - current_beat, 5)
+def fill_rest_line(line_text, current_beat, units_per_bar):
+    beat_remain = round(units_per_bar - current_beat, 5)
     rest_parts = []
     while beat_remain > 0:
         if beat_remain >= 1:
@@ -105,7 +118,17 @@ except ValueError:
     bpm = 80
 
 beat_duration = 60 / bpm
-beats_per_bar = 4
+
+# ======== 使用者輸入拍號 ========
+try:
+    numerator = int(input("請輸入拍號分子 (例如 3/4 的 3, 預設=4)：") or 4)
+    denominator = int(input("請輸入拍號分母 (例如 3/4 的 4, 預設=4)：") or 4)
+except ValueError:
+    print("⚠️ 無效輸入，使用預設 4/4")
+    numerator, denominator = 4, 4
+
+units_per_bar = get_units_per_bar(numerator, denominator)
+print(f"✅ 當前拍號: {numerator}/{denominator}, 一小節 {units_per_bar} 格")
 
 # ======== 處理音符並轉換 ========
 midi_data = pretty_midi.PrettyMIDI(midi_path)
@@ -128,14 +151,14 @@ output_lines = []
 for note in note_structs:
     line_buffer += f"{note.symbol_and_rhythm} "
     current_beat += note.beats
-    if current_beat >= beats_per_bar:
+    if current_beat >= units_per_bar:
         output_lines.append(line_buffer.strip())
         line_buffer = ""
-        current_beat -= beats_per_bar
+        current_beat -= units_per_bar
 
 # 若最後一行還有剩下未滿小節的音
 if line_buffer.strip():
-    filled_line = fill_rest_line(line_buffer.strip(), current_beat, beats_per_bar)
+    filled_line = fill_rest_line(line_buffer.strip(), current_beat, units_per_bar)
     output_lines.append(filled_line)
 
 
