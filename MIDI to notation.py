@@ -46,7 +46,7 @@ def get_units_per_bar(numerator: int, denominator: int) -> int:
 def sec_to_unit(t_sec: float, sec_per_unit: float) -> int:
     return int(round(t_sec / sec_per_unit))
 
-def snap_to_common_units(real_units: float, tol: float = 2.0) -> int:
+def snap_to_common_units(real_units: float, tol: float = 4.0) -> int:
     nearest = min(COMMON_UNITS, key=lambda u: abs(real_units - u))
     if abs(real_units - nearest) <= tol:
         return int(nearest)
