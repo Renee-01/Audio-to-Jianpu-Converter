@@ -90,9 +90,43 @@ def tokens_from_units(symbol: str, units: int) -> str:
     chunks = decompose_units(units)
     return " ~ ".join(f"{unit_to_prefix(u)}{symbol}" for u in chunks)
 
-def make_rest_tokens(remain_units: int, small_first: bool = False) -> list[str]:
-    chooser = decompose_units_small_first if small_first else decompose_units
-    return [f"{unit_to_prefix(u)}0" for u in chooser(remain_units)]
+def make_rest_tokens_barwise(remain_units: int, denominator: int) -> list[str]:
+    """
+    以『大到小』補休止；優先用分母對應單位（但不超過四分=16格），
+    再用 8、4、2、1 依序補。避免 32/64 這種休止單位造成視覺混亂。
+    例如：
+      4/4：先 16，再 8/4/2/1  → 會得到 0 0 0 這種清楚的四分休止
+      6/8：先 8，再 4/2/1      → q0 q0 q0...
+    """
+    # 分母對應的單位（用四分=16格為基準）
+    units_per_note = int(UNITS_PER_QUARTER * (4 / denominator))
+    # 為了視覺清楚，不讓 32/64 變成單一休止：把最大休止單位限制在 16
+    base = min(UNITS_PER_QUARTER, units_per_note)  # 例如 3/2 → 32 也會被視為 16+16
+
+    order = [base, 8, 4, 2, 1]           # 大到小
+    order = [u for u in order if u >= 1] # 保險過濾
+
+    tokens = []
+    rem = remain_units
+
+    # 先用大單位盡量填滿
+    for u in order:
+        if rem <= 0:
+            break
+        count = rem // u
+        if count > 0:
+            pref = unit_to_prefix(u)
+            tokens.extend([f"{pref}0"] * count)
+            rem -= u * count
+
+    # 若仍有極小尾數，改用小到大補完（通常不會進來）
+    for u in [1, 2, 4, 8]:
+        while rem >= u:
+            tokens.append(f"{unit_to_prefix(u)}0")
+            rem -= u
+
+    return tokens
+
 
 # ===================== 主流程 =====================
 # 1) 選檔
@@ -163,13 +197,13 @@ max_bar = max(bars_tokens.keys())
 per_bar_texts = []
 for b in range(0, max_bar + 1):
     tokens = bars_tokens.get(b, [])
-    if b == max_bar:
+    if b == max_bar:  # 只補最後一小節
         used = bars_used.get(b, 0)
         remain = UNITS_PER_BAR - used
         if remain > 0:
-            tokens += make_rest_tokens(remain, small_first=True)
-        elif remain < 0 and abs(remain) <= 2:
-            pass
+            # 以分母對應單位優先，『大到小』補休止（避免碎）
+            tokens += make_rest_tokens_barwise(remain, denominator)
+
     per_bar_texts.append(" ".join(tokens).strip())
 
 jianpu_text = " | ".join(per_bar_texts) + " |"
