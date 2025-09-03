@@ -6,147 +6,175 @@ import subprocess
 from datetime import datetime
 import webbrowser
 
-# ======== 資料結構定義 ========
+# ===================== 參數 =====================
+UNITS_PER_QUARTER = 16  # 四分音符 = 16 格（= 1 拍 = 16 格）
+ALLOWED_UNITS = [64, 32, 16, 8, 4, 2, 1]  # 允許的時值格數
+COMMON_UNITS  = [1, 2, 3, 4, 6, 8, 12, 16, 24, 32, 48, 64]  # 常見音價，用來吸附誤差
+
+JIANPU_SCRIPT = r"D:\Audio-to-Jianpu-Converter\jianpu-ly.py"
+LILYPOND_EXE  = r"C:\Users\lulu1\lilypond-2.24.4\bin\lilypond.exe"
+
+# ===================== 資料結構 =====================
 @dataclass
-class NoteStruct:
-    symbol_and_rhythm: str
-    beats: float
-    start: float
-    end: float
+class GridNote:
+    symbol: str
+    start_u: int
+    end_u: int
 
-# ======== 音高轉簡譜 ========
-
-
-
+# ===================== 工具函式 =====================
 def midi_to_jianpu(pitch: int) -> str:
     scale_map = {
-        0: '1', 1: '#1', 2: '2', 3: '#2', 4: '3',
-        5: '4', 6: '#4', 7: '5', 8: '#5', 9: '6', 10: '#6', 11: '7'
+        0:'1', 1:'#1', 2:'2', 3:'#2', 4:'3',
+        5:'4', 6:'#4', 7:'5', 8:'#5', 9:'6', 10:'#6', 11:'7'
     }
     octave = pitch // 12 - 1
     note_in_octave = pitch % 12
     base = scale_map.get(note_in_octave, '?')
-    if octave == 4: return base
+    if   octave == 4: return base
     elif octave == 5: return base + '\''
     elif octave == 3: return base + ','
-    elif octave > 5: return base + '\'' * (octave - 4)
-    elif octave < 3: return base + ',' * (4 - octave)
+    elif octave >  5: return base + '\'' * (octave - 4)
+    elif octave <  3: return base + ',' * (4 - octave)
     else: return base
 
-# ======== 拍數分類（含附點） ========
-def quantize_units(duration_sec: float, sec_per_unit: float) -> int:
-    """
-    把音的時長 (秒) 轉換成「格數」
-    例如 1 拍=16格，八分=8格，四分=16格，全音=64格...
-    """
-    units = int(round(duration_sec / sec_per_unit))
-    return max(units, 1)  # 至少佔 1 格，避免 0
+def get_units_per_bar(numerator: int, denominator: int) -> int:
+    """以四分=16格為基準，計算一小節的格數"""
+    quarter_equiv = 4 / denominator
+    units_per_note = UNITS_PER_QUARTER * quarter_equiv
+    return int(numerator * units_per_note)
 
-# ======== 節奏標記轉換 ========
-def rhythm_marker(beats: float, symbol: str) -> str:
-    if beats == 4.0: return f"{symbol} - - -"
-    elif beats == 3.0: return f"{symbol} - -"
-    elif beats == 2.0: return f"{symbol} -"
-    elif beats == 1.5: return f"{symbol}."
-    elif beats == 1.0: return f"{symbol}"
-    elif beats == 0.75: return f"q{symbol}."
-    elif beats == 0.5: return f"q{symbol}"
-    elif beats == 0.375: return f"s{symbol}."
-    elif beats == 0.25: return f"s{symbol}"
-    elif beats == 0.1875: return f"d{symbol}."
-    elif beats == 0.125: return f"d{symbol}"
-    elif beats == 0.09375: return f"h{symbol}."
-    elif beats == 0.0625: return f"h{symbol}"
-    else: return f"?{symbol}"
+def sec_to_unit(t_sec: float, sec_per_unit: float) -> int:
+    return int(round(t_sec / sec_per_unit))
 
-# ======== 自動補齊不足拍的小節 ========
-def fill_rest_line(line_text, current_beat, units_per_bar):
-    beat_remain = round(units_per_bar - current_beat, 5)
-    rest_parts = []
-    while beat_remain > 0:
-        if beat_remain >= 1:
-            rest_parts.append("0")
-            beat_remain -= 1
-        elif beat_remain >= 0.5:
-            rest_parts.append("q0")
-            beat_remain -= 0.5
-        elif beat_remain >= 0.25:
-            rest_parts.append("s0")
-            beat_remain -= 0.25
-        elif beat_remain >= 0.125:
-            rest_parts.append("d0")
-            beat_remain -= 0.125
-        elif beat_remain >= 0.0625:
-            rest_parts.append("h0")
-            beat_remain -= 0.0625
-        else:
-            break
-    return line_text.strip() + " " + " ".join(rest_parts)
+def snap_to_common_units(real_units: float, tol: float = 2.0) -> int:
+    nearest = min(COMMON_UNITS, key=lambda u: abs(real_units - u))
+    if abs(real_units - nearest) <= tol:
+        return int(nearest)
+    return int(round(real_units))
 
+def split_across_bars(start_u: int, end_u: int, units_per_bar: int):
+    parts = []
+    pos = start_u
+    while pos < end_u:
+        bar_end = ((pos // units_per_bar) + 1) * units_per_bar
+        piece_end = min(bar_end, end_u)
+        parts.append((pos, piece_end))
+        pos = piece_end
+    return parts
 
-# ======== 開啟 MIDI 檔案 ========
+def decompose_units(units: int):
+    out, rem = [], units
+    for u in ALLOWED_UNITS:
+        while rem >= u:
+            out.append(u); rem -= u
+        if rem == 0: break
+    return out
+
+def decompose_units_small_first(units: int):
+    out, rem = [], units
+    for u in reversed(ALLOWED_UNITS):  # 1,2,4,8,16,32,64
+        while rem >= u:
+            out.append(u); rem -= u
+        if rem == 0: break
+    return out
+
+def unit_to_prefix(u: int) -> str:
+    if   u == 16: return ""
+    elif u == 8:  return "q"
+    elif u == 4:  return "s"
+    elif u == 2:  return "d"
+    elif u == 1:  return "h"
+    else:         return ""
+
+def tokens_from_units(symbol: str, units: int) -> str:
+    chunks = decompose_units(units)
+    return " ~ ".join(f"{unit_to_prefix(u)}{symbol}" for u in chunks)
+
+def make_rest_tokens(remain_units: int, small_first: bool = False) -> list[str]:
+    chooser = decompose_units_small_first if small_first else decompose_units
+    return [f"{unit_to_prefix(u)}0" for u in chooser(remain_units)]
+
+# ===================== 主流程 =====================
+# 1) 選檔
 Tk().withdraw()
 midi_path = filedialog.askopenfilename(title="選擇 MIDI 檔案", filetypes=[("MIDI files", "*.mid *.midi")])
 if not midi_path:
     print("❌ 未選取檔案。")
-    exit()
-
+    raise SystemExit
 print(f"✅ 載入檔案：{os.path.basename(midi_path)}")
 
-# ======== 使用者輸入 BPM ========
+# 2) BPM / 拍號
 try:
-    bpm = float(input("請輸入 BPM（預設為 80）：") or 80)
+    bpm = float(input("請輸入 BPM（預設 80）：") or 80)
 except ValueError:
     print("⚠️ 無效輸入，使用預設 BPM = 80")
-    bpm = 80
-
-
-# ======== 使用者輸入拍號 ========
+    bpm = 80.0
 try:
-    numerator = int(input("請輸入拍號分子 (例如 3/4 的 3, 預設=4)：") or 4)
-    denominator = int(input("請輸入拍號分母 (例如 3/4 的 4, 預設=4)：") or 4)
+    numerator = int(input("請輸入拍號分子 (預設=4)：") or 4)
+    denominator = int(input("請輸入拍號分母 (預設=4)：") or 4)
 except ValueError:
     print("⚠️ 無效輸入，使用預設 4/4")
     numerator, denominator = 4, 4
 
-units_per_beat = 16 # 一拍是幾格
-beat_duration = 60 / bpm # 一拍的時長
-sec_per_unit = beat_duration / units_per_beat # 一格的時長
-units_per_bar = units_per_beat * numerator # 一個小節有幾格
+# 3) 換算
+beat_sec     = 60.0 / bpm
+sec_per_unit = beat_sec / UNITS_PER_QUARTER
+UNITS_PER_BAR = get_units_per_bar(numerator, denominator)
+print(f"✅ {numerator}/{denominator}：一小節 {UNITS_PER_BAR} 格；四分={UNITS_PER_QUARTER} 格；每格={sec_per_unit:.6f}s")
 
-# ======== 處理音符並轉換 ========
-midi_data = pretty_midi.PrettyMIDI(midi_path)
-instrument = midi_data.instruments[0]
-notes = sorted(instrument.notes, key=lambda n: n.start)
+# 4) 讀 MIDI → grid notes
+midi = pretty_midi.PrettyMIDI(midi_path)
+if not midi.instruments:
+    print("❌ 這個 MIDI 沒有軌。")
+    raise SystemExit
+notes = sorted(midi.instruments[0].notes, key=lambda n: (n.start, n.end))
 
-note_structs = []
-for note in notes:
-    symbol = midi_to_jianpu(note.pitch)
-    duration = note.end - note.start
-    unit_length = quantize_units(duration, sec_per_unit)
-    symbol_and_rhythm = rhythm_marker(unit_length, symbol)
-    note_structs.append(NoteStruct(symbol_and_rhythm, beat_length, note.start, note.end))
+grid_notes = []
+for n in notes:
+    symbol = midi_to_jianpu(n.pitch)
+    su = sec_to_unit(n.start, sec_per_unit)
+    real_units = (n.end - n.start) / sec_per_unit
+    dur_u = snap_to_common_units(real_units, tol=2.0)
+    eu = su + max(dur_u, 1)
+    if eu <= su:
+        continue
+    grid_notes.append(GridNote(symbol, su, eu))
 
-# ======== 每小節換行輸出 ========
-current_beat = 0
-line_buffer = ""
-output_lines = []
+# 5) 切分跨小節、加 ~
+bars_tokens = {}
+bars_used   = {}
 
-for note in note_structs:
-    line_buffer += f"{note.symbol_and_rhythm} "
-    current_beat += note.beats
-    if current_beat >= units_per_bar:
-        output_lines.append(line_buffer.strip())
-        line_buffer = ""
-        current_beat -= units_per_bar
+for note in grid_notes:
+    slices = split_across_bars(note.start_u, note.end_u, UNITS_PER_BAR)
+    for i, (s, e) in enumerate(slices):
+        dur = e - s
+        if dur <= 0:
+            continue
+        token_str = tokens_from_units(note.symbol, dur)
+        bar_idx = s // UNITS_PER_BAR
+        tie_to_next = (i < len(slices) - 1)
+        if tie_to_next:
+            token_str = token_str + " ~"
+        bars_tokens.setdefault(bar_idx, []).append(token_str)
+        bars_used[bar_idx] = bars_used.get(bar_idx, 0) + dur
 
-# 若最後一行還有剩下未滿小節的音
-if line_buffer.strip():
-    filled_line = fill_rest_line(line_buffer.strip(), current_beat, units_per_bar)
-    output_lines.append(filled_line)
+# 6) 組裝每小節，只補最後一小節休止
+max_bar = max(bars_tokens.keys())
+per_bar_texts = []
+for b in range(0, max_bar + 1):
+    tokens = bars_tokens.get(b, [])
+    if b == max_bar:
+        used = bars_used.get(b, 0)
+        remain = UNITS_PER_BAR - used
+        if remain > 0:
+            tokens += make_rest_tokens(remain, small_first=True)
+        elif remain < 0 and abs(remain) <= 2:
+            pass
+    per_bar_texts.append(" ".join(tokens).strip())
 
+jianpu_text = " | ".join(per_bar_texts) + " |"
 
-# ======== 儲存 txt 檔案 ========
+# 7) 儲存 txt
 timestamp = datetime.now().strftime("%Y-%m-%d_%H%M")
 base_name = f"output_{timestamp}"
 output_dir = os.path.join(os.path.dirname(midi_path), "output", base_name)
@@ -154,29 +182,39 @@ os.makedirs(output_dir, exist_ok=True)
 
 output_txt = os.path.join(output_dir, f"{base_name}.txt")
 with open(output_txt, "w", encoding="utf-8") as f:
-    for line in output_lines:
-        f.write(line + "\n")
-
+    f.write(jianpu_text + "\n")
 print(f"✅ 簡譜已儲存：{output_txt}")
 
-
-# ======== 產出 PDF 檔 ========
-JIANPU_SCRIPT = r"d:\Audio-to-Jianpu Converter\jianpu-ly.py"
-LILYPOND_EXE = r"C:\Users\lulu1\lilypond-2.24.4\bin\lilypond.exe"
-output_ly = os.path.join(output_dir, f"{base_name}.ly")
+# 8) 產生 .ly
+output_ly  = os.path.join(output_dir, f"{base_name}.ly")
 output_pdf = os.path.join(output_dir, f"{base_name}.pdf")
 
-# Step 1: jianpu-ly.py → .ly
 with open(output_txt, "r", encoding="utf-8") as fin, open(output_ly, "w", encoding="utf-8") as fout:
-    subprocess.run(["python", JIANPU_SCRIPT], stdin=fin, stdout=fout)
+    subprocess.run(["python", JIANPU_SCRIPT], stdin=fin, stdout=fout, check=False)
 
-# Step 2: LilyPond → PDF
-subprocess.run([LILYPOND_EXE, "-o", base_name, f"{base_name}.ly"], cwd=output_dir)
+# 補上 \version
+try:
+    with open(output_ly, "r", encoding="utf-8") as f:
+        ly_src = f.read()
+    if "\\version" not in ly_src:
+        ly_src = '\\version "2.24.4"\n' + ly_src
+        with open(output_ly, "w", encoding="utf-8") as f:
+            f.write(ly_src)
+except Exception as e:
+    print("⚠️ 處理 .ly 時發生例外：", e)
 
-# Step 3: 打開 PDF
+# 9) LilyPond → PDF
+subprocess.run([LILYPOND_EXE, "-o", base_name, f"{base_name}.ly"], cwd=output_dir, check=False)
+
+if not os.path.exists(output_pdf):
+    for f in os.listdir(output_dir):
+        if f.lower().endswith(".pdf"):
+            output_pdf = os.path.join(output_dir, f)
+            break
+
+# 10) 開啟 PDF
 if os.path.exists(output_pdf):
     webbrowser.open(output_pdf)
     print("✅ PDF 已開啟。")
 else:
-    print("❌ PDF 產出失敗。")
-    
+    print("❌ PDF 產出失敗。檔案夾：", output_dir)
