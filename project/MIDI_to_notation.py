@@ -11,8 +11,8 @@ def convert_midi_to_jianpu(midi_path: str,bpm: float ,numerator: int ,denominato
     ALLOWED_UNITS = [64, 32, 16, 8, 4, 2, 1]  # 允許的時值格數
     COMMON_UNITS  = [1, 2, 3, 4, 6, 8, 12, 16, 24, 32, 48, 64]  # 常見音價，用來吸附誤差
 
-    JIANPU_SCRIPT = r"D:\Audio-to-Jianpu-Converter\lilypond-2.24.4\jianpu-ly.py"
-    LILYPOND_EXE  = r"D:\Audio-to-Jianpu-Converter\lilypond-2.24.4\bin\lilypond.exe"
+    JIANPU_SCRIPT = r"C:\lilypond-2.24.4\jianpu-ly.py"
+    LILYPOND_EXE  = r"C:\lilypond-2.24.4\bin\lilypond.exe"
     
     # ===================== 資料結構 =====================
     @dataclass
