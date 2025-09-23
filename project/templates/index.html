@@ -24,12 +24,20 @@
       padding: 60px;
       box-shadow: 0 0 20px rgba(0,0,0,0.2);
     }
+  .content{
+    width: 520px;                 /* 你可調整寬度 */
+    max-width: calc(100% - 40px); /* 避免太窄螢幕擠爆 */
+    margin: 0 auto;               /* 讓整個區塊在背景圖中置中 */
+    text-align: left;             /* 內容左對齊 → 標題與三行會有同一條左邊線 */
+  }
 
+    /* 這裡把標題改白色 */
     h1 {
       font-size: 36px;
-      color: #111;
+      color: #fff;          /* 原本是 #111，改成白色 */
       font-weight: bold;
       margin-bottom: 40px;
+      text-shadow: 0 2px 6px rgba(0,0,0,.45); /* 可選，讓白字更清楚 */
     }
 
     .upload-btn {
@@ -47,21 +55,41 @@
       background-color: #ddd;
     }
 
-    input[type="file"] {
-      display: none;
-    }
+    input[type="file"] { display: none; }
+
+    /* 這裡指定 BPM 那行的 label 變白色 */
+  label[for="bpm"],
+  label[for="numerator"],
+  label[for="denominator"]{
+    display: block;
+    color: #fff;                  /* 若要白字可保留 */
+    margin: 10px 0 4px;
+  }
+  /* （可選）上傳按鈕那一行仍想置中可用 */
+  .upload-row{
+    text-align: center;
+    margin: 12px 0 20px;
+  }
   </style>
 </head>
 <body>
   <div class="container">
-  <h1>音訊轉換簡譜系統</h1>
-  <form action="/upload" method="post" enctype="multipart/form-data">
-    <label for="file-upload" class="upload-btn">選擇 MIDI 檔案</label>
+    <div class="content"></div>
+    <h1>音訊轉換簡譜系統</h1>
+
+    <form class="form-grid "action="/upload" method="post" enctype="multipart/form-data">
+      <label for="file-upload" class="upload-btn">選擇 MIDI 檔案</label>
       <input id="file-upload" type="file" name="file" accept=".mid,.midi" required />
-
-      <label for="bpm"class="upload-btn">請輸入 BPM（預設 80）</label>
+      <br><br>
+      <label for="bpm">請輸入 BPM（預設 80）</label>
       <input id="bpm" type="number" name="bpm" value="80" min="30" max="300" />
-
+      <br>
+      <label for="numerator">請輸入拍號分子 (預設=4)</label>
+      <input id="numerator" type="number" name="numerator" value="4" min="0" max="12" />
+      <br>
+      <label for="denominator">請輸入拍號分母 (預設=4)</label>
+      <input id="bpm" type="number" name="denominator" value="4" min="0" max="12" />
+      <br><br>
       <button type="submit" class="submit-btn">上傳並轉換</button>
     </form>
   </div>
