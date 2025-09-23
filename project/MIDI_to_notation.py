@@ -126,13 +126,13 @@ def convert_midi_to_jianpu(midi_path: str,bpm: float ,numerator: int ,denominato
 
         return tokens
     # ===================== main =====================
-    # 1) 換算
+    # 3) 換算
     beat_sec     = 60.0 / bpm
     sec_per_unit = beat_sec / UNITS_PER_QUARTER
     UNITS_PER_BAR = get_units_per_bar(numerator, denominator)
     print(f"✅ {numerator}/{denominator}：一小節 {UNITS_PER_BAR} 格；四分={UNITS_PER_QUARTER} 格；每格={sec_per_unit:.6f}s")
 
-    # 2) 讀 MIDI → grid notes
+    # 4) 讀 MIDI → grid notes
     midi = pretty_midi.PrettyMIDI(midi_path)
     if not midi.instruments:
         print("❌ 這個 MIDI 沒有軌。")
@@ -148,8 +148,9 @@ def convert_midi_to_jianpu(midi_path: str,bpm: float ,numerator: int ,denominato
         eu = su + max(dur_u, 1)
         if eu <= su:
             continue
-    grid_notes.append(GridNote(symbol, su, eu))
-    # 3) 切分跨小節、加 ~
+        grid_notes.append(GridNote(symbol, su, eu))
+
+    # 5) 切分跨小節、加 ~
     bars_tokens = {}
     bars_used   = {}
 
@@ -166,7 +167,8 @@ def convert_midi_to_jianpu(midi_path: str,bpm: float ,numerator: int ,denominato
                 token_str = token_str + " ~"
             bars_tokens.setdefault(bar_idx, []).append(token_str)
             bars_used[bar_idx] = bars_used.get(bar_idx, 0) + dur
-    # 4) 組裝每小節，只補最後一小節休止
+
+    # 6) 組裝每小節，只補最後一小節休止
     max_bar = max(bars_tokens.keys())
     per_bar_texts = []
     for b in range(0, max_bar + 1):
@@ -179,27 +181,28 @@ def convert_midi_to_jianpu(midi_path: str,bpm: float ,numerator: int ,denominato
                 tokens += make_rest_tokens_barwise(remain, denominator)
 
         per_bar_texts.append(" ".join(tokens).strip())
-        
+
     jianpu_text = " | ".join(per_bar_texts) + " |"
-    
-    # ======== 儲存 txt 檔案 ========
+
+    # 7) 儲存 txt
     timestamp = datetime.now().strftime("%Y-%m-%d_%H%M")
     base_name = f"output_{timestamp}"
-    base_dir  = os.path.dirname(midi_path)# 一般是 uploads/
-    output_dir = os.path.join(base_dir, "output", base_name)
+    output_dir = os.path.join(os.path.dirname(midi_path), "output", base_name)
     os.makedirs(output_dir, exist_ok=True)
- 
+
     output_txt = os.path.join(output_dir, f"{base_name}.txt")
     with open(output_txt, "w", encoding="utf-8") as f:
         f.write(jianpu_text + "\n")
-
     print(f"✅ 簡譜已儲存：{output_txt}")
-    # ======== 產生 .ly ========
+
+    # 8) 產生 .ly
     output_ly  = os.path.join(output_dir, f"{base_name}.ly")
     output_pdf = os.path.join(output_dir, f"{base_name}.pdf")
+
     with open(output_txt, "r", encoding="utf-8") as fin, open(output_ly, "w", encoding="utf-8") as fout:
         subprocess.run(["python", JIANPU_SCRIPT], stdin=fin, stdout=fout, check=False)
-    # ======== 補上 \version ========
+
+    # 補上 \version
     try:
         with open(output_ly, "r", encoding="utf-8") as f:
             ly_src = f.read()
@@ -210,30 +213,18 @@ def convert_midi_to_jianpu(midi_path: str,bpm: float ,numerator: int ,denominato
     except Exception as e:
         print("⚠️ 處理 .ly 時發生例外：", e)
 
-    # ======== 產出 PDF 檔 ========
-    #JIANPU_SCRIPT = r"D:\Audio-to-Jianpu-Converter\jianpu-ly.py"
-    #LILYPOND_EXE = r"D:\Audio-to-Jianpu-Converter\lilypond.exe"
-    output_ly = os.path.join(output_dir, f"{base_name}.ly")
-    output_pdf = os.path.join(output_dir, f"{base_name}.pdf")
+    # 9) LilyPond → PDF
+    subprocess.run([LILYPOND_EXE, "-o", base_name, f"{base_name}.ly"], cwd=output_dir, check=False)
 
-    # Step 1: jianpu-ly.py → .ly
-    with open(output_txt, "r", encoding="utf-8") as fin, open(output_ly, "w", encoding="utf-8") as fout:
-        subprocess.run(["python", JIANPU_SCRIPT], stdin=fin, stdout=fout)
+    if not os.path.exists(output_pdf):
+        for f in os.listdir(output_dir):
+            if f.lower().endswith(".pdf"):
+                output_pdf = os.path.join(output_dir, f)
+                break
 
-    # Step 2: LilyPond → PDF
-    subprocess.run([LILYPOND_EXE, "-o", base_name, f"{base_name}.ly"], cwd=output_dir)
-
-    # Step 3: 打開 PDF
+    # 10) 開啟 PDF
     if os.path.exists(output_pdf):
         webbrowser.open(output_pdf)
         print("✅ PDF 已開啟。")
     else:
-        print("❌ PDF 產出失敗。")
-    
-    with open(output_txt, "r", encoding="utf-8") as f:
-        text_output = f.read()
-
-    return {
-        "text_output": text_output,
-        "pdf_path": output_pdf if os.path.exists(output_pdf) else None
-    }
+        print("❌ PDF 產出失敗。檔案夾：", output_dir)
