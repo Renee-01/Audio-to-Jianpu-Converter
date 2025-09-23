@@ -5,7 +5,7 @@ from dataclasses import dataclass
 import subprocess
 from datetime import datetime
 import webbrowser
-def convert_midi_to_jianpu(midi_path: str,bpm: float = 80,numerator: int = 4,denominator: int = 4) -> str:
+def convert_midi_to_jianpu(midi_path: str,bpm: float ,numerator: int ,denominator: int ) -> str:
     # ===================== 參數 =====================
     UNITS_PER_QUARTER = 16  # 四分音符 = 16 格（= 1 拍 = 16 格）
     ALLOWED_UNITS = [64, 32, 16, 8, 4, 2, 1]  # 允許的時值格數
