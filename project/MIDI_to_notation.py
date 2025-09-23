@@ -124,7 +124,7 @@ def convert_midi_to_jianpu(midi_path: str,bpm: float ,numerator: int ,denominato
                 tokens.append(f"{unit_to_prefix(u)}0")
                 rem -= u
 
-        return tokenss
+        return tokens
     # ===================== main =====================
     # 1) 換算
     beat_sec     = 60.0 / bpm
