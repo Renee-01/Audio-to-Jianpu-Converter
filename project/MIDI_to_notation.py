@@ -185,7 +185,7 @@ def convert_midi_to_jianpu(midi_path: str,bpm: float ,numerator: int ,denominato
     jianpu_text = " | ".join(per_bar_texts) + " |"
 
     # 7) 儲存 txt
-    timestamp = datetime.now().strftime("%Y-%m-%d_%H%M")
+    timestamp = datetime.now().strftime("%Y-%m-%d_%H%M%S") 
     base_name = f"output_{timestamp}"
     output_dir = os.path.join(os.path.dirname(midi_path), "output", base_name)
     os.makedirs(output_dir, exist_ok=True)
@@ -223,16 +223,18 @@ def convert_midi_to_jianpu(midi_path: str,bpm: float ,numerator: int ,denominato
                 break
 
     # 10) 開啟 PDF
+    """
     if os.path.exists(output_pdf):
         webbrowser.open(output_pdf)
         print("✅ PDF 已開啟。")
     else:
         print("❌ PDF 產出失敗。檔案夾：", output_dir)
-        
+    """
     with open(output_txt, "r", encoding="utf-8") as f:
         text_output = f.read()
-
+    
     return {
         "text_output": text_output,
         "pdf_path": output_pdf if os.path.exists(output_pdf) else None
     }
+    

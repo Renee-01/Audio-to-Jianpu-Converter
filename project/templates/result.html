@@ -15,14 +15,10 @@
   <p>儲存於：{{ filepath }}</p>
 
   <h4>簡譜結果：</h4>
-  <pre>{{ text_output }}</pre>
 
   {% if pdf_rel %}
-    <p>
-      <a class="btn" href="{{ url_for('download_file', subpath=pdf_rel) }}" target="_blank">👉 下載 PDF 樂譜</a>
-    </p>
-    <!-- 內嵌顯示 PDF（用 inline 路由） -->
-    <iframe class="pdf" src="{{ url_for('view_file', subpath=pdf_rel) }}"></iframe>
+  <!-- 這段就是內嵌 PDF 的 iframe，要放在這個模板裡 -->
+  <iframe class="pdf" src="{{ url_for('view_file', subpath=pdf_rel) }}"></iframe>
   {% else %}
     <p>❌ PDF 轉換失敗，請檢查 LilyPond 路徑或轉換過程。</p>
   {% endif %}
