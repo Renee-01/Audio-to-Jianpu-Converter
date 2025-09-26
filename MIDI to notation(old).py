@@ -11,7 +11,7 @@ UNITS_PER_QUARTER = 16  # 四分音符 = 16 格（= 1 拍 = 16 格）
 ALLOWED_UNITS = [64, 32, 16, 8, 4, 2, 1]  # 允許的時值格數
 COMMON_UNITS  = [1, 2, 3, 4, 6, 8, 12, 16, 24, 32, 48, 64]  # 常見音價，用來吸附誤差
 
-JIANPU_SCRIPT = r"D:\Audio-to-Jianpu-Converter\jianpu-ly.py"
+JIANPU_SCRIPT = r"C:\lilypond-2.24.4\jianpu-ly.py"
 LILYPOND_EXE  = r"C:\lilypond-2.24.4\bin\lilypond.exe"
 
 # ===================== 資料結構 =====================
