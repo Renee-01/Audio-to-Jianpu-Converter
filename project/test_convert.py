@@ -2,6 +2,7 @@ import argparse
 import os
 from tkinter import Tk, filedialog
 from MIDI_to_notation import convert_midi_to_jianpu
+from MIDI_to_notation import openPDF
 
 def main():
     parser = argparse.ArgumentParser(description="測試 convert_midi_to_jianpu")
@@ -36,6 +37,8 @@ def main():
         print(f"\n✅ PDF 已輸出: {pdf_path}")
     else:
         print("\n⚠ 沒有產生 PDF。")
+
+    openPDF(pdf_path)
 
 if __name__ == "__main__":
     main()
