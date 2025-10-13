@@ -194,13 +194,8 @@ def convert_midi_to_jianpu(midi_path: str,bpm: float ,numerator: int ,denominato
 
     jianpu_text = " | ".join(per_bar_texts) + " |"
 
-<<<<<<< HEAD
     # 7) 儲存 txt
     timestamp = datetime.now().strftime("%Y-%m-%d_%H%M%S") 
-=======
-    # 儲存 txt
-    timestamp = datetime.now().strftime("%Y-%m-%d_%H%M")
->>>>>>> fe4e3dd6c0ca02238151775dc760fe70e815487d
     base_name = f"output_{timestamp}"
     output_dir = os.path.join(os.path.dirname(midi_path), "output", base_name)
     os.makedirs(output_dir, exist_ok=True)
@@ -237,7 +232,6 @@ def convert_midi_to_jianpu(midi_path: str,bpm: float ,numerator: int ,denominato
                 output_pdf = os.path.join(output_dir, f)
                 break
 
-<<<<<<< HEAD
     # 10) 開啟 PDF
     """
     if os.path.exists(output_pdf):
@@ -246,9 +240,6 @@ def convert_midi_to_jianpu(midi_path: str,bpm: float ,numerator: int ,denominato
     else:
         print("❌ PDF 產出失敗。檔案夾：", output_dir)
     """
-=======
-    
->>>>>>> fe4e3dd6c0ca02238151775dc760fe70e815487d
     with open(output_txt, "r", encoding="utf-8") as f:
         text_output = f.read()
     
@@ -256,52 +247,4 @@ def convert_midi_to_jianpu(midi_path: str,bpm: float ,numerator: int ,denominato
         "text_output": text_output,
         "pdf_path": output_pdf if os.path.exists(output_pdf) else None
     }
-<<<<<<< HEAD
     
-=======
-
-
-def main():
-    # 1) 選檔
-    Tk().withdraw()
-    midi_path = filedialog.askopenfilename(title="選擇 MIDI 檔案", filetypes=[("MIDI files", "*.mid *.midi")])
-    if not midi_path:
-        print("❌ 未選取檔案。")
-        raise SystemExit
-    print(f"✅ 載入檔案：{os.path.basename(midi_path)}")
-
-    # 2) BPM / 拍號
-    try:
-        bpm = float(input("請輸入 BPM（預設 80）：") or 80)
-    except ValueError:
-        print("⚠️ 無效輸入，使用預設 BPM = 80")
-        bpm = 80.0
-    try:
-        numerator = int(input("請輸入拍號分子 (預設=4)：") or 4)
-        denominator = int(input("請輸入拍號分母 (預設=4)：") or 4)
-    except ValueError:
-        print("⚠️ 無效輸入，使用預設 4/4")
-        numerator, denominator = 4, 4
-
-    print(f"✅ 載入檔案：{os.path.basename(midi_path)}")
-    print(f"▶ 開始轉檔: {midi_path}")
-    print(f"  BPM={bpm}, 拍號={numerator}/{denominator}")
-
-    result = convert_midi_to_jianpu(midi_path, bpm, numerator, denominator)
-
-    text_output = result.get("text_output", "")
-    pdf_path = result.get("pdf_path")
-
-    print("\n===== Jianpu Output (前 500 字) =====")
-    print(text_output[:500] + ("..." if len(text_output) > 500 else ""))
-
-    if pdf_path and os.path.exists(pdf_path):
-        print(f"\n✅ PDF 已輸出: {pdf_path}")
-    else:
-        print("\n⚠ 沒有產生 PDF。")
-
-    openPDF(pdf_path)
-
-if __name__ == "__main__":
-    main()
->>>>>>> fe4e3dd6c0ca02238151775dc760fe70e815487d
