@@ -61,12 +61,43 @@ def split_across_bars(start_u: int, end_u: int, units_per_bar: int):
     return parts
 
 def decompose_units(units: int):
-    out, rem = [], units
-    for u in ALLOWED_UNITS:
+    """
+    將時值（格）拆成 16/8/4/2/1 的序列。
+    先用盡可能多的 16（四分音符），再用 8/4/2/1 補尾數。
+    """
+    out = []
+    if units >= 16:
+        n16 = units // 16
+        out.extend([16] * n16)
+        rem = units - 16 * n16
+    else:
+        rem = units
+
+    for u in (8, 4, 2, 1):
         while rem >= u:
-            out.append(u); rem -= u
-        if rem == 0: break
+            out.append(u)
+            rem -= u
+        if rem == 0:
+            break
     return out
+
+def tokens_from_units(symbol: str, units: int) -> str:
+    """
+    第一段輸出音符本身；後續段改成續音 '-'
+    續音也帶上時值前綴（q/s/d/h），以保留精準時值。
+    例：32格 -> [16,16] => '4 -'；64格 -> '4 - - -'
+        24格 -> [16,8]  => '4 q-'
+    """
+    chunks = decompose_units(units)
+    parts = []
+    for i, u in enumerate(chunks):
+        pref = unit_to_prefix(u)  # 16:'', 8:'q', 4:'s', 2:'d', 1:'h'
+        if i == 0:
+            parts.append(f"{pref}{symbol}")
+        else:
+            parts.append(f"{pref}-")
+    return " ".join(parts)
+
 
 def decompose_units_small_first(units: int):
     out, rem = [], units
@@ -84,9 +115,6 @@ def unit_to_prefix(u: int) -> str:
     elif u == 1:  return "h"
     else:         return ""
 
-def tokens_from_units(symbol: str, units: int) -> str:
-    chunks = decompose_units(units)
-    return " ~ ".join(f"{unit_to_prefix(u)}{symbol}" for u in chunks)
 
 def make_rest_tokens_barwise(remain_units: int, denominator: int) -> list[str]:
     """
