@@ -191,8 +191,22 @@ def convert_midi_to_jianpu(midi_path: str,bpm: float ,numerator: int ,denominato
                 tokens += make_rest_tokens_barwise(remain, denominator)
 
         per_bar_texts.append(" ".join(tokens).strip())
+        
 
     jianpu_text = " | ".join(per_bar_texts) + " |"
+
+    # 以檔名當標題
+    song_title = os.path.splitext(os.path.basename(midi_path))[0]
+
+    # 依 jianpu-ly.py 範例加入檔頭
+    header = (
+        "% jianpu-ly.py 文檔\n"
+        f"title={song_title}\n"
+        f"{numerator}/{denominator}\n"
+        "\n"  # 空行，與正文分隔
+    )
+
+    full_text = header + jianpu_text + "\n"
 
     # 儲存 txt
     timestamp = datetime.now().strftime("%Y-%m-%d_%H%M")
@@ -201,8 +215,8 @@ def convert_midi_to_jianpu(midi_path: str,bpm: float ,numerator: int ,denominato
     os.makedirs(output_dir, exist_ok=True)
 
     output_txt = os.path.join(output_dir, f"{base_name}.txt")
-    with open(output_txt, "w", encoding="utf-8") as f:
-        f.write(jianpu_text + "\n")
+    with open(output_txt, "w", encoding="utf-8", newline="\n") as f:
+        f.write(full_text)  # ← 這裡改成寫 full_text
     print(f"✅ 簡譜已儲存：{output_txt}")
 
     # 產生 .ly
