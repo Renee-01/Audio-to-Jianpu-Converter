@@ -83,20 +83,32 @@ def decompose_units(units: int):
 
 def tokens_from_units(symbol: str, units: int) -> str:
     """
-    第一段輸出音符本身；後續段改成續音 '-'
-    續音也帶上時值前綴（q/s/d/h），以保留精準時值。
-    例：32格 -> [16,16] => '4 -'；64格 -> '4 - - -'
-        24格 -> [16,8]  => '4 q-'
+    - 首段：若首段=16，輸出 '音符'；若首段<16，輸出 '前綴+音符'（如 q4）。
+    - 其後所有續音都『黏在同一個 token 後面』：
+        * 16 格 -> 直接加 '-'（不加空白）
+        * 8/4/2/1 -> 加 '前綴-'（不加空白）
+    例：
+      32 -> [16,16]        => '4-'
+      64 -> [16,16,16,16]  => '4---'
+      24 -> [16,8]         => '4q-'
+      40 -> [16,16,8]      => '4--q-'
+      17 -> [16,1]         => '4h-'
+      8  -> [8]            => 'q4'
     """
     chunks = decompose_units(units)
-    parts = []
-    for i, u in enumerate(chunks):
-        pref = unit_to_prefix(u)  # 16:'', 8:'q', 4:'s', 2:'d', 1:'h'
-        if i == 0:
-            parts.append(f"{pref}{symbol}")
-        else:
-            parts.append(f"{pref}-")
-    return " ".join(parts)
+    if not chunks:
+        return symbol
+
+    # 首段
+    first = chunks[0]
+    tok = f"{symbol}" if first == 16 else f"{unit_to_prefix(first)}{symbol}"
+
+    # 續段全部黏在 tok 後面
+    for u in chunks[1:]:
+        tok += "-" if u == 16 else f"{unit_to_prefix(u)}-"
+
+    return tok
+
 
 
 def decompose_units_small_first(units: int):
@@ -182,7 +194,7 @@ def convert_midi_to_jianpu(midi_path: str,bpm: float ,numerator: int ,denominato
         symbol = midi_to_jianpu(n.pitch)
         su = sec_to_unit(n.start, sec_per_unit)
         real_units = (n.end - n.start) / sec_per_unit
-        dur_u = snap_to_common_units(real_units, tol=2.0)
+        dur_u = snap_to_common_units(real_units, tol=4.0)
         eu = su + max(dur_u, 1)
         if eu <= su:
             continue
@@ -207,21 +219,34 @@ def convert_midi_to_jianpu(midi_path: str,bpm: float ,numerator: int ,denominato
             bars_used[bar_idx] = bars_used.get(bar_idx, 0) + dur
 
     # 組裝每小節，只補最後一小節休止
-    max_bar = max(bars_tokens.keys())
+    # === 組裝每小節，只補最後一小節休止（含清掉殘留的 ~）===
+    max_bar = max(bars_tokens.keys()) if bars_tokens else -1
     per_bar_texts = []
     for b in range(0, max_bar + 1):
         tokens = bars_tokens.get(b, [])
+
+        # 清掉該小節最後一個 token 尾端可能殘留的 " ~"
+        if tokens and tokens[-1].endswith(" ~"):
+            tokens[-1] = tokens[-1][:-2].rstrip()
+
         if b == max_bar:  # 只補最後一小節
             used = bars_used.get(b, 0)
             remain = UNITS_PER_BAR - used
             if remain > 0:
-                # 以分母對應單位優先，『大到小』補休止（避免碎）
                 tokens += make_rest_tokens_barwise(remain, denominator)
 
-        per_bar_texts.append(" ".join(tokens).strip())
-        
+        # 再保險一次：若最後一個 token 仍有 "~"，去掉
+        if tokens and tokens[-1].endswith("~"):
+            tokens[-1] = tokens[-1].rstrip("~").rstrip()
 
-    jianpu_text = " | ".join(per_bar_texts) + " |"
+        per_bar_texts.append(" ".join(tokens).strip())
+
+    # 組好整段簡譜；只在結尾補一個 barline
+    jianpu_text = " | ".join(per_bar_texts).strip()
+    if jianpu_text and not jianpu_text.endswith("|"):
+        jianpu_text += " |"
+
+
 
     # 以檔名當標題
     song_title = os.path.splitext(os.path.basename(midi_path))[0]
@@ -283,7 +308,7 @@ def convert_midi_to_jianpu(midi_path: str,bpm: float ,numerator: int ,denominato
         "pdf_path": output_pdf if os.path.exists(output_pdf) else None
     }
 
-
+#________________main________________
 def main():
     # 1) 選檔
     Tk().withdraw()
@@ -300,6 +325,7 @@ def main():
         print("⚠️ 無效輸入，使用預設 BPM = 80")
         bpm = 80.0
     try:
+
         numerator = int(input("請輸入拍號分子 (預設=4)：") or 4)
         denominator = int(input("請輸入拍號分母 (預設=4)：") or 4)
     except ValueError:
@@ -311,7 +337,6 @@ def main():
     print(f"  BPM={bpm}, 拍號={numerator}/{denominator}")
 
     result = convert_midi_to_jianpu(midi_path, bpm, numerator, denominator)
-
     text_output = result.get("text_output", "")
     pdf_path = result.get("pdf_path")
 
