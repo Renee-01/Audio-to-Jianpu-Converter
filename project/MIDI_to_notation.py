@@ -83,31 +83,40 @@ def decompose_units(units: int):
 
 def tokens_from_units(symbol: str, units: int) -> str:
     """
-    - 首段：若首段=16，輸出 '音符'；若首段<16，輸出 '前綴+音符'（如 q4）。
-    - 其後所有續音都『黏在同一個 token 後面』：
-        * 16 格 -> 直接加 '-'（不加空白）
-        * 8/4/2/1 -> 加 '前綴-'（不加空白）
+    - 首段：16 -> '音符'；<16 -> '前綴+音符'（如 q4）
+    - 續段：
+        * 16  -> 獨立一個 '-'（用空白分隔）
+        * 8/4/2/1 -> 獨立 '前綴-'（如 q- / s- / d- / h-）
     例：
-      32 -> [16,16]        => '4-'
-      64 -> [16,16,16,16]  => '4---'
-      24 -> [16,8]         => '4q-'
-      40 -> [16,16,8]      => '4--q-'
-      17 -> [16,1]         => '4h-'
-      8  -> [8]            => 'q4'
+      64 -> [16,16,16,16]   => '4 - - -'
+      32 -> [16,16]         => '4 -'
+      24 -> [16,8]          => '4 q-'
+      40 -> [16,16,8]       => '4 - q-'
+      17 -> [16,1]          => '4 h-'
+      8  -> [8]             => 'q4'
     """
     chunks = decompose_units(units)
     if not chunks:
         return symbol
 
+    tokens = []
+
     # 首段
     first = chunks[0]
-    tok = f"{symbol}" if first == 16 else f"{unit_to_prefix(first)}{symbol}"
+    if first == 16:
+        tokens.append(f"{symbol}")
+    else:
+        tokens.append(f"{unit_to_prefix(first)}{symbol}")
 
-    # 續段全部黏在 tok 後面
+    # 續段：獨立 token
     for u in chunks[1:]:
-        tok += "-" if u == 16 else f"{unit_to_prefix(u)}-"
+        if u == 16:
+            tokens.append("-")
+        else:
+            tokens.append(f"{unit_to_prefix(u)}-")
 
-    return tok
+    return " ".join(tokens)
+
 
 
 
