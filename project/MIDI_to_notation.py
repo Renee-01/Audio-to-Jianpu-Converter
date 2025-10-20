@@ -5,7 +5,6 @@ import subprocess
 from datetime import datetime
 from dataclasses import dataclass
 from tkinter import Tk, filedialog
-<<<<<<< HEAD
 from collections import defaultdict
 
 import pretty_midi
@@ -40,23 +39,6 @@ def _decode_bytes(b: bytes) -> str:
             continue
     return b.decode("utf-8", errors="replace")
 
-=======
-
-import pretty_midi
-
-# ===================== 參數 =====================
-UNITS_PER_QUARTER = 16  # 四分音符 = 16 格（= 1 拍 = 16 格）
-ALLOWED_UNITS = [64, 32, 16, 8, 4, 2, 1]  # 允許的時值格數
-COMMON_UNITS  = [1, 2, 3, 4, 6, 8, 12, 16, 24, 32, 48, 64]  # 常見音價，用來吸附誤差
-
-# 同步你的安裝路徑
-JIANPU_SCRIPT = r"C:\lilypond-2.24.4\jianpu-ly.py"
-LILYPOND_EXE  = r"C:\lilypond-2.24.4\bin\lilypond.exe"
-
-# 相鄰同音合併的間隔門檻（格），0 表示不合併；建議 0~2
-MERGE_GAP_UNITS = 2
-
->>>>>>> 56e1185bd6b0f95dfe4ede8cc93e93b3a8ed3547
 # ===================== 資料結構 =====================
 @dataclass
 class GridNote:
@@ -114,15 +96,8 @@ def decompose_units(units: int):
         rem = units
     for u in (8, 4, 2, 1):
         while rem >= u:
-<<<<<<< HEAD
             out.append(u); rem -= u
         if rem == 0: break
-=======
-            out.append(u)
-            rem -= u
-        if rem == 0:
-            break
->>>>>>> 56e1185bd6b0f95dfe4ede8cc93e93b3a8ed3547
     return out
 
 def unit_to_prefix(u: int) -> str:
@@ -135,29 +110,14 @@ def unit_to_prefix(u: int) -> str:
 
 def tokens_from_units(symbol: str, units: int) -> str:
     """
-<<<<<<< HEAD
     SHOW_PITCH_ON_CONTINUATIONS=True：
       每段都帶音高，不輸出 s- / d- / h- / '-'
     False：首段帶音高，續段用 q- / s- / d- / h- / - （舊行為）
-=======
-    - 首段：16 -> '音符'；<16 -> '前綴+音符'（如 q4）
-    - 續段：
-        * 16  -> 獨立一個 '-'（用空白分隔）
-        * 8/4/2/1 -> 獨立 '前綴-'（如 q- / s- / d- / h-）
-    例：
-      64 -> [16,16,16,16]   => '4 - - -'
-      32 -> [16,16]         => '4 -'
-      24 -> [16,8]          => '4 q-'
-      40 -> [16,16,8]       => '4 - q-'
-      17 -> [16,1]          => '4 h-'
-      8  -> [8]             => 'q4'
->>>>>>> 56e1185bd6b0f95dfe4ede8cc93e93b3a8ed3547
     """
     chunks = decompose_units(units)
     if not chunks:
         return symbol
 
-<<<<<<< HEAD
     if SHOW_PITCH_ON_CONTINUATIONS:
         tokens = []
         for u in chunks:
@@ -169,27 +129,16 @@ def tokens_from_units(symbol: str, units: int) -> str:
 
     # 舊行為
     tokens = []
-=======
-    tokens = []
-
-    # 首段
->>>>>>> 56e1185bd6b0f95dfe4ede8cc93e93b3a8ed3547
     first = chunks[0]
     if first == 16:
         tokens.append(f"{symbol}")
     else:
         tokens.append(f"{unit_to_prefix(first)}{symbol}")
-<<<<<<< HEAD
-=======
-
-    # 續段：獨立 token
->>>>>>> 56e1185bd6b0f95dfe4ede8cc93e93b3a8ed3547
     for u in chunks[1:]:
         if u == 16:
             tokens.append("-")
         else:
             tokens.append(f"{unit_to_prefix(u)}-")
-<<<<<<< HEAD
     return " ".join(tokens)
 
 def make_rest_tokens_barwise(remain_units: int, denominator: int) -> list[str]:
@@ -200,25 +149,6 @@ def make_rest_tokens_barwise(remain_units: int, denominator: int) -> list[str]:
 
     tokens = []
     rem = remain_units
-=======
-
-    return " ".join(tokens)
-
-def make_rest_tokens_barwise(remain_units: int, denominator: int) -> list[str]:
-    """
-    以『大到小』補休止；優先用分母對應單位（但不超過四分=16格），
-    再用 8、4、2、1 依序補，避免 32/64 這種休止單位造成視覺混亂。
-    """
-    units_per_note = int(UNITS_PER_QUARTER * (4 / denominator))
-    base = min(UNITS_PER_QUARTER, units_per_note)
-
-    order = [base, 8, 4, 2, 1]
-    order = [u for u in order if u >= 1]
-
-    tokens = []
-    rem = remain_units
-
->>>>>>> 56e1185bd6b0f95dfe4ede8cc93e93b3a8ed3547
     for u in order:
         if rem <= 0: break
         count = rem // u
@@ -226,79 +156,46 @@ def make_rest_tokens_barwise(remain_units: int, denominator: int) -> list[str]:
             pref = unit_to_prefix(u)
             tokens.extend([f"{pref}0"] * count)
             rem -= u * count
-<<<<<<< HEAD
-=======
-
->>>>>>> 56e1185bd6b0f95dfe4ede8cc93e93b3a8ed3547
     for u in [1, 2, 4, 8]:
         while rem >= u:
             tokens.append(f"{unit_to_prefix(u)}0"); rem -= u
     return tokens
 
-<<<<<<< HEAD
 def openPDF(pdf_path: str):
     if not pdf_path:
         print("⚠️ 沒有 PDF 路徑（可能編譯未產生 PDF）。"); return
-=======
-# 開啟 PDF（具防呆）
-def openPDF(pdf_path: str):
-    if not pdf_path:
-        print("⚠️ 沒有 PDF 路徑（可能編譯未產生 PDF）。")
-        return
->>>>>>> 56e1185bd6b0f95dfe4ede8cc93e93b3a8ed3547
     if os.path.exists(pdf_path):
         webbrowser.open(pdf_path); print("✅ PDF 已開啟。")
     else:
         print("❌ 找不到 PDF 檔：", pdf_path)
 
-<<<<<<< HEAD
 # ===================== 主流程 =====================
 def convert_midi_to_jianpu(midi_path: str, bpm: float, numerator: int, denominator: int) -> dict:
-=======
-def convert_midi_to_jianpu(midi_path: str, bpm: float, numerator: int, denominator: int) -> dict:
-    # 換算
->>>>>>> 56e1185bd6b0f95dfe4ede8cc93e93b3a8ed3547
     beat_sec     = 60.0 / bpm
     sec_per_unit = beat_sec / UNITS_PER_QUARTER
     UNITS_PER_BAR = get_units_per_bar(numerator, denominator)
     print(f"✅ {numerator}/{denominator}：一小節 {UNITS_PER_BAR} 格；四分={UNITS_PER_QUARTER} 格；每格={sec_per_unit:.6f}s")
 
-<<<<<<< HEAD
-=======
-    # 讀 MIDI
->>>>>>> 56e1185bd6b0f95dfe4ede8cc93e93b3a8ed3547
     midi = pretty_midi.PrettyMIDI(midi_path)
     if not midi.instruments:
         print("❌ 這個 MIDI 沒有軌。"); raise SystemExit
     notes = sorted(midi.instruments[0].notes, key=lambda n: (n.start, n.end))
 
-<<<<<<< HEAD
     # ① 量化到格線（方法2）
-=======
-    # === 方法2：量化到格線（先量化再計算格數） ===
->>>>>>> 56e1185bd6b0f95dfe4ede8cc93e93b3a8ed3547
     for n in notes:
         q_start = round(n.start / sec_per_unit) * sec_per_unit
         q_end   = round(n.end   / sec_per_unit) * sec_per_unit
         if q_end <= q_start:
-<<<<<<< HEAD
             q_end = q_start + sec_per_unit
         n.start, n.end = q_start, q_end
 
     # ② 合併相鄰同音（小縫 <= MERGE_GAP_UNITS）
-=======
-            q_end = q_start + sec_per_unit  # 至少佔 1 格
-        n.start, n.end = q_start, q_end
-
-    # （可選）合併相鄰同音且間隔很小的音符，避免被誤切碎
->>>>>>> 56e1185bd6b0f95dfe4ede8cc93e93b3a8ed3547
     if MERGE_GAP_UNITS > 0:
         merged = []
         for n in notes:
             if merged:
                 last = merged[-1]
                 gap_units = (n.start - last.end) / sec_per_unit
-<<<<<<< HEAD
                 if n.pitch == last.pitch and 0 <= gap_units <= MERGE_GAP_UNITS:
                     last.end = n.end; continue
             merged.append(n)
@@ -326,34 +223,19 @@ def convert_midi_to_jianpu(midi_path: str, bpm: float, numerator: int, denominat
     notes = mono
 
     # ④ 轉 grid notes
-=======
-                if n.pitch == last.pitch and gap_units >= 0 and gap_units <= MERGE_GAP_UNITS:
-                    last.end = n.end
-                    continue
-            merged.append(n)
-        notes = merged
-
-    # 轉成 grid notes
->>>>>>> 56e1185bd6b0f95dfe4ede8cc93e93b3a8ed3547
     grid_notes = []
     for n in notes:
         symbol = midi_to_jianpu(n.pitch)
         su = sec_to_unit(n.start, sec_per_unit)
         real_units = (n.end - n.start) / sec_per_unit
-        dur_u = snap_to_common_units(real_units, tol=4.0)  # 少許吸附
+        dur_u = snap_to_common_units(real_units, tol=4.0)
         eu = su + max(dur_u, 1)
         if eu <= su: continue
         grid_notes.append(GridNote(symbol, su, eu))
 
-<<<<<<< HEAD
     # ⑤ 切分跨小節、加 ~；同時計算「覆蓋格」避免重疊重複計
     bars_tokens: dict[int, list[str]] = {}
     bars_cover: dict[int, set[int]] = defaultdict(set)
-=======
-    # 切分跨小節、加 ~
-    bars_tokens: dict[int, list[str]] = {}
-    bars_used: dict[int, int] = {}
->>>>>>> 56e1185bd6b0f95dfe4ede8cc93e93b3a8ed3547
 
     for note in grid_notes:
         slices = split_across_bars(note.start_u, note.end_u, UNITS_PER_BAR)
@@ -366,15 +248,11 @@ def convert_midi_to_jianpu(midi_path: str, bpm: float, numerator: int, denominat
                 token_str = token_str + " ~"
             bars_tokens.setdefault(bar_idx, []).append(token_str)
 
-<<<<<<< HEAD
             local_s = s % UNITS_PER_BAR
             for u in range(local_s, local_s + dur):
                 bars_cover[bar_idx].add(u)
 
     # ⑥ 組裝每小節：只在最後一小節補休止；清掉尾端孤單的 "~"
-=======
-    # === 組裝每小節：所有小節都補休止、清除尾端 ~（避免 barcheck） ===
->>>>>>> 56e1185bd6b0f95dfe4ede8cc93e93b3a8ed3547
     max_bar = max(bars_tokens.keys()) if bars_tokens else -1
     per_bar_texts = []
     for b in range(0, max_bar + 1):
@@ -383,20 +261,12 @@ def convert_midi_to_jianpu(midi_path: str, bpm: float, numerator: int, denominat
         if tokens and tokens[-1].endswith(" ~"):
             tokens[-1] = tokens[-1][:-2].rstrip()
 
-<<<<<<< HEAD
         used = len(bars_cover.get(b, set()))
         remain = UNITS_PER_BAR - used
 
         if remain < 0:
             print(f"⚠️ 第 {b+1} 小節覆蓋超過 {abs(remain)} 格（請檢查量化/單聲化）")
         elif remain > 0 and (b == max_bar if FILL_LAST_BAR_ONLY else True):
-=======
-        used = bars_used.get(b, 0)
-        remain = UNITS_PER_BAR - used
-        if remain < 0:
-            print(f"第 {b+1} 小節超過 {abs(remain)} 格（理論不該發生）")
-        elif remain > 0:
->>>>>>> 56e1185bd6b0f95dfe4ede8cc93e93b3a8ed3547
             tokens += make_rest_tokens_barwise(remain, denominator)
 
         if tokens and tokens[-1].endswith("~"):
@@ -408,24 +278,15 @@ def convert_midi_to_jianpu(midi_path: str, bpm: float, numerator: int, denominat
     if jianpu_text and not jianpu_text.endswith("|"):
         jianpu_text += " |"
 
-<<<<<<< HEAD
-=======
-    # 以檔名當標題
->>>>>>> 56e1185bd6b0f95dfe4ede8cc93e93b3a8ed3547
     song_title = os.path.splitext(os.path.basename(midi_path))[0]
     header = (
         "% jianpu-ly.py 文檔\n"
         f"title={song_title}\n"
-<<<<<<< HEAD
         f"{numerator}/{denominator}\n\n"
-=======
-        f"{numerator}/{denominator}\n"
-        "\n"
->>>>>>> 56e1185bd6b0f95dfe4ede8cc93e93b3a8ed3547
     )
     full_text = header + jianpu_text + "\n"
 
-    # 儲存 txt（固定放在來源同層的 output/<timestamp>）
+    # 儲存 txt
     timestamp = datetime.now().strftime("%Y-%m-%d_%H%M")
     base_name = f"output_{timestamp}"
     output_dir = os.path.join(os.path.dirname(midi_path), "output", base_name)
@@ -440,16 +301,11 @@ def convert_midi_to_jianpu(midi_path: str, bpm: float, numerator: int, denominat
     output_ly  = os.path.join(output_dir, f"{base_name}.ly")
     output_pdf = os.path.join(output_dir, f"{base_name}.pdf")
 
-<<<<<<< HEAD
     # 用同一支 Python 執行 jianpu-ly.py（UTF-8）
-=======
-    # 用同一支 Python 執行 jianpu-ly.py，保留 stderr 方便除錯
->>>>>>> 56e1185bd6b0f95dfe4ede8cc93e93b3a8ed3547
     with open(output_txt, "r", encoding="utf-8") as fin, open(output_ly, "w", encoding="utf-8") as fout:
         res = subprocess.run(
             [sys.executable, JIANPU_SCRIPT],
             stdin=fin, stdout=fout,
-<<<<<<< HEAD
             stderr=subprocess.PIPE, text=False, check=False, env=ENV_UTF8
         )
     if not os.path.exists(output_ly):
@@ -457,16 +313,6 @@ def convert_midi_to_jianpu(midi_path: str, bpm: float, numerator: int, denominat
         print("❌ 未生成 .ly，請確認 jianpu-ly.py 是否可執行、路徑是否正確")
         if err:
             print("── jianpu-ly.py stderr ──"); print(err)
-=======
-            stderr=subprocess.PIPE, text=True, check=False
-        )
-    if not os.path.exists(output_ly):
-        err = (res.stderr or "").strip()
-        print("未生成 .ly，請確認 jianpu-ly.py 是否可執行、路徑是否正確")
-        if err:
-            print("── jianpu-ly.py stderr ──")
-            print(err)
->>>>>>> 56e1185bd6b0f95dfe4ede8cc93e93b3a8ed3547
         return {"text_output": full_text, "pdf_path": None}
 
     # 補上 \version
@@ -478,44 +324,26 @@ def convert_midi_to_jianpu(midi_path: str, bpm: float, numerator: int, denominat
             with open(output_ly, "w", encoding="utf-8") as f:
                 f.write(ly_src)
     except Exception as e:
-        print("處理 .ly 時發生例外：", e)
+        print("⚠️ 處理 .ly 時發生例外：", e)
 
-<<<<<<< HEAD
     # LilyPond → PDF（UTF-8、收 bytes 再手動解碼）
     res2 = subprocess.run(
         [LILYPOND_EXE, "-o", base_name, f"{base_name}.ly"],
         cwd=output_dir,
         stdout=subprocess.PIPE, stderr=subprocess.PIPE,
         text=False, check=False, env=ENV_UTF8
-=======
-    # LilyPond → PDF
-    res2 = subprocess.run(
-    [LILYPOND_EXE, "-o", base_name, f"{base_name}.ly"],
-    cwd=output_dir,
-    stdout=subprocess.PIPE, stderr=subprocess.PIPE,  # 收 bytes
-    text=False, check=False,
-    env={**os.environ, "PYTHONIOENCODING": "utf-8", "PYTHONUTF8": "1"}  # 提示子行程用 UTF-8
->>>>>>> 56e1185bd6b0f95dfe4ede8cc93e93b3a8ed3547
     )
 
     if not os.path.exists(output_pdf):
-        # 掃描目錄找實際輸出的 pdf 名稱
         for f in os.listdir(output_dir):
             if f.lower().endswith(".pdf"):
                 output_pdf = os.path.join(output_dir, f)
                 break
 
     if not os.path.exists(output_pdf):
-<<<<<<< HEAD
         err2 = _decode_bytes(res2.stderr).strip()
         if err2:
             print("⚠ LilyPond stderr："); print(err2)
-=======
-        err2 = (res2.stderr or "").strip()
-        if err2:
-            print("LilyPond stderr：")
-            print(err2)
->>>>>>> 56e1185bd6b0f95dfe4ede8cc93e93b3a8ed3547
 
     with open(output_txt, "r", encoding="utf-8") as f:
         text_output = f.read()
@@ -555,11 +383,7 @@ def main():
         openPDF(pdf_path)
     else:
         print("\n⚠ 沒有產生 PDF。")
-<<<<<<< HEAD
         openPDF(pdf_path)  # 防呆不會噴錯
-=======
-        openPDF(pdf_path)  # 這裡有防呆，不會噴錯
->>>>>>> 56e1185bd6b0f95dfe4ede8cc93e93b3a8ed3547
 
 if __name__ == "__main__":
     main()
