@@ -77,9 +77,9 @@
     <div class="content"></div>
     <h1>音訊轉換簡譜系統</h1>
 
-    <form class="form-grid "action="/upload" method="post" enctype="multipart/form-data">
-      <label for="file-upload" class="upload-btn">選擇 MIDI 檔案</label>
-      <input id="file-upload" type="file" name="file" accept=".mid,.midi" required />
+    <form class="form-grid "action="/audio-upload" method="post" enctype="multipart/form-data">
+      <label for="file-upload" class="upload-btn">選擇 音訊(.mp3、.wav) 檔案</label>
+      <input id="file-upload" type="file" name="file" accept=".mp3,.wav" required />
       <br><br>
       <label for="bpm">請輸入 BPM（預設 80）</label>
       <input id="bpm" type="number" name="bpm" value="80" min="30" max="300" />

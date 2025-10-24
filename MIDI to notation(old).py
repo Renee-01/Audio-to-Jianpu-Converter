@@ -13,6 +13,7 @@ COMMON_UNITS  = [1, 2, 3, 4, 6, 8, 12, 16, 24, 32, 48, 64]  # 常見音價，用
 
 JIANPU_SCRIPT = r"C:\lilypond-2.24.4\jianpu-ly.py"
 LILYPOND_EXE  = r"C:\lilypond-2.24.4\bin\lilypond.exe"
+
 # ===================== 資料結構 =====================
 @dataclass
 class GridNote:
