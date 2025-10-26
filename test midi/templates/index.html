@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8" />
+  <title>MIDI → Jianpu JSON 測試</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    body { font-family: system-ui, sans-serif; padding: 24px; }
+    pre { background: #f6f6f6; padding: 12px; overflow: auto; }
+    .hint { opacity: .7; }
+  </style>
+</head>
+<body>
+  <h1>上傳 MIDI，查看 Jianpu JSON</h1>
+  <input id="midi" type="file" accept=".mid,.midi" />
+  <button id="send">上傳並轉換</button>
+  <p class="hint">端點：<code>POST /api/midi-to-jianpujson</code></p>
+  <h2>結果</h2>
+  <pre id="out">尚未上傳</pre>
+
+  <script>
+    const btn = document.getElementById('send');
+    const inp = document.getElementById('midi');
+    const out = document.getElementById('out');
+
+    btn.onclick = async () => {
+      const file = inp.files && inp.files[0];
+      if (!file) { alert('請先選擇 MIDI 檔'); return; }
+      const fd = new FormData();
+      fd.append('file', file);
+      out.textContent = '轉換中…';
+      try {
+        const res = await fetch('/api/midi-to-jianpujson', { method: 'POST', body: fd });
+        const data = await res.json();
+        out.textContent = JSON.stringify(data, null, 2);
+      } catch (e) {
+        out.textContent = '發生錯誤：' + e.message;
+      }
+    };
+  </script>
+</body>
+</html>
