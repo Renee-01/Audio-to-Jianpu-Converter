@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8" />
+  <title>編輯單音旋律</title>
+  <style>
+    body{font-family:ui-sans-serif,system-ui,"Segoe UI","Noto Sans TC",Arial;margin:0;background:#f7f7f7;}
+    header{display:flex;justify-content:space-between;align-items:center;padding:12px 16px;background:#222;color:#fff;}
+    .meta{font-size:14px;opacity:.85}
+    .wrap{display:flex;gap:12px;padding:12px;}
+    .panel{background:#fff;border-radius:10px;box-shadow:0 6px 16px rgba(0,0,0,.08)}
+    #roll{width:1000px;height:420px;cursor:default;display:block;border-radius:10px;}
+    .side{padding:12px 16px}
+    .btn{appearance:none;border:0;border-radius:8px;padding:10px 14px;background:#0b79d0;color:#fff;font-weight:600;cursor:pointer}
+    .row{display:flex;gap:10px;align-items:center;margin:6px 0}
+    .hint{font-size:13px;color:#555}
+    ul{margin:6px 0 0 16px;padding:0}
+  </style>
+</head>
+<body>
+<header>
+  <div>
+    <div><strong>單音鋼琴捲軸編輯器</strong></div>
+    <div class="meta">檔案：{{ filename }}　BPM: {{ bpm }}　拍號：{{ numerator }}/{{ denominator }}</div>
+  </div>
+  <div class="row">
+    <button id="exportBtn" class="btn">輸出成單音 MIDI → 產生簡譜</button>
+  </div>
+</header>
+
+<!-- 用 data-* 放基本參數，避免在 JS 中直接插 Jinja -->
+<div id="cfg"
+     data-bpm="{{ bpm }}"
+     data-num="{{ numerator }}"
+     data-den="{{ denominator }}"
+     data-upq="{{ units_per_quarter }}">
+</div>
+
+<!-- 把 notes JSON 放在 application/json script，避免 VS Code 誤判 -->
+<script id="init-notes" type="application/json">{{ notes_json|safe }}</script>
+
+<div class="wrap">
+  <canvas id="roll" class="panel"></canvas>
+
+  <div class="panel side">
+    <div class="row"><strong>操作說明</strong></div>
+    <div class="hint">
+      <ul>
+        <li>拖曳音符移動；拖拉邊緣改長度</li>
+        <li>空白鍵切換「新增模式」；點擊格子新增音符</li>
+        <li>按一下音符刪除</li>
+        <li>所有時間單位＝「格」；四分＝<span id="upqText"></span> 格</li>
+      </ul>
+      <p>※ 傳回後端時會自動單音化（遇重疊即切斷前一音）。</p>
+    </div>
+  </div>
+</div>
+
+<script>
+  // 讀基本參數
+  const cfgEl = document.getElementById('cfg');
+  const UNITS_PER_QUARTER = parseInt(cfgEl.dataset.upq, 10);
+  const BPM = parseFloat(cfgEl.dataset.bpm);
+  const NUM = parseInt(cfgEl.dataset.num, 10);
+  const DEN = parseInt(cfgEl.dataset.den, 10);
+  document.getElementById('upqText').textContent = String(UNITS_PER_QUARTER);
+
+  // 讀初始 notes
+  const INIT_NOTES = JSON.parse(document.getElementById('init-notes').textContent || '[]');
+
+  // Piano-roll 視覺參數
+  const R = {
+    lanes: 48,             // 顯示的音高列數
+    pitchMin: 48,          // C3=48 起
+    laneH: 16,
+    unitW: 12,             // 1格寬
+    bars: 16,              // 預設顯示幾小節
+    unitsPerBar: NUM * (UNITS_PER_QUARTER * (4 / DEN))
+  };
+
+  const cvs = document.getElementById('roll');
+  cvs.width  = R.unitW * R.unitsPerBar * R.bars;
+  cvs.height = R.laneH * R.lanes;
+  const ctx = cvs.getContext('2d');
+
+  // 狀態
+  let notes = INIT_NOTES.map(n => ({ pitch: n.pitch, start: n.start, end: n.end }));
+  let modeAdd = false;
+  let dragging = null;
+
+  // 工具
+  function pitchToLane(p){ return (R.pitchMin + R.lanes - 1) - p; }
+  function laneToPitch(l){ return (R.pitchMin + R.lanes - 1) - l; }
+  function xToUnit(x){ return Math.max(0, Math.round(x / R.unitW)); }
+  function yToLane(y){ return Math.max(0, Math.min(R.lanes-1, Math.floor(y / R.laneH))); }
+
+  function draw(){
+    ctx.clearRect(0,0,cvs.width,cvs.height);
+
+    // 背景鍵盤區（黑鍵行微暗）
+    for(let l=0; l<R.lanes; l++){
+      const pc = laneToPitch(l) % 12;
+      const isBlack = (pc===1||pc===3||pc===6||pc===8||pc===10);
+      ctx.fillStyle = isBlack ? '#f2f2f6' : '#f9f9fb';
+      ctx.fillRect(0, l*R.laneH, cvs.width, R.laneH);
+    }
+
+    // 垂直拍格 & 小節線
+    const totalUnits = R.unitsPerBar * R.bars;
+    for(let u=0; u<=totalUnits; u++){
+      ctx.beginPath();
+      ctx.moveTo(u*R.unitW, 0);
+      ctx.lineTo(u*R.unitW, cvs.height);
+      ctx.strokeStyle = (u % R.unitsPerBar === 0) ? '#bbb' : (u % UNITS_PER_QUARTER === 0 ? '#ddd' : '#eee');
+      ctx.lineWidth = (u % R.unitsPerBar === 0) ? 1.2 : 1;
+      ctx.stroke();
+    }
+
+    // 音符
+    notes.forEach(n=>{
+      const x  = n.start * R.unitW;
+      const w  = Math.max(1, (n.end - n.start) * R.unitW);
+      const y  = pitchToLane(n.pitch) * R.laneH + 2;
+      const h  = R.laneH - 4;
+      ctx.fillStyle = '#0b79d0';
+      ctx.fillRect(x, y, w, h);
+      ctx.fillStyle = '#084d80';
+      ctx.fillRect(x, y, 4, h);
+      ctx.fillRect(x + w - 4, y, 4, h);
+    });
+
+    if(modeAdd){
+      ctx.fillStyle = 'rgba(11,121,208,.08)';
+      ctx.fillRect(0, 0, cvs.width, cvs.height);
+    }
+  }
+
+  function hitTest(x, y){
+    for(let i=notes.length-1;i>=0;i--){
+      const n = notes[i];
+      const x1 = n.start * R.unitW;
+      const x2 = n.end   * R.unitW;
+      const y1 = pitchToLane(n.pitch)*R.laneH+2;
+      const y2 = y1 + (R.laneH-4);
+      if(x>=x1 && x<=x2 && y>=y1 && y<=y2){
+        const edge = (x - x1 < 6) ? 'left' : ((x2 - x < 6) ? 'right' : null);
+        return {idx:i, edge:edge};
+      }
+    }
+    return null;
+  }
+
+  cvs.addEventListener('mousedown', e=>{
+    const rect = cvs.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+
+    if(modeAdd){
+      const lane = yToLane(y);
+      const pitch = laneToPitch(lane);
+      const u = xToUnit(x);
+      notes.push({pitch:pitch, start:u, end:u+UNITS_PER_QUARTER}); // 預設 1 拍
+      draw();
+      return;
+    }
+
+    const hit = hitTest(x,y);
+    if(hit){
+      const n = notes[hit.idx];
+      dragging = {
+        idx: hit.idx,
+        edge: hit.edge,
+        offU: xToUnit(x) - n.start,
+        offR: n.end - xToUnit(x),
+        offLane: yToLane(y) - pitchToLane(n.pitch)
+      };
+    }
+  });
+
+  window.addEventListener('mousemove', e=>{
+    if(!dragging) return;
+    const rect = cvs.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+    const u = xToUnit(x);
+    const lane = yToLane(y);
+
+    const n = notes[dragging.idx];
+    if(dragging.edge === 'left'){
+      n.start = Math.min(n.end-1, u);
+    }else if(dragging.edge === 'right'){
+      n.end = Math.max(n.start+1, u);
+    }else{
+      const dur = n.end - n.start;
+      n.start = Math.max(0, u - dragging.offU);
+      n.end   = n.start + dur;
+      const newLane = pitchToLane(n.pitch) + (lane - (pitchToLane(n.pitch) + dragging.offLane));
+      const clamped = Math.max(0, Math.min(R.lanes-1, newLane));
+      n.pitch = laneToPitch(clamped);
+    }
+    draw();
+  });
+
+  window.addEventListener('mouseup', ()=>{ dragging = null; });
+
+  // 點一下刪除
+  cvs.addEventListener('click', e=>{
+    if(modeAdd) return;
+    const rect = cvs.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+    const hit = hitTest(x,y);
+    if(hit && !dragging){
+      notes.splice(hit.idx,1);
+      draw();
+    }
+  });
+
+  // 空白鍵切換新增模式
+  window.addEventListener('keydown', e=>{
+    if(e.code === 'Space'){
+      e.preventDefault();
+      modeAdd = !modeAdd;
+      draw();
+    }
+  });
+
+  document.getElementById('exportBtn').addEventListener('click', async ()=>{
+    notes = notes.filter(n => n.end > n.start);
+    const res = await fetch('/save-midi', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({
+        notes: notes, bpm: BPM, numerator: NUM, denominator: DEN
+      })
+    });
+    const html = await res.text();
+    document.open(); document.write(html); document.close();
+  });
+
+  draw();
+</script>
+</body>
+</html>
