@@ -1,4 +1,4 @@
-from flask import Flask, render_template, request, send_file
+from flask import Flask, render_template, request, send_file, redirect, url_for
 import os, json
 from werkzeug.utils import secure_filename
 from MIDI_to_notation import convert_midi_to_jianpu
@@ -30,11 +30,11 @@ def extract_notes_for_editor(midi_path: str):
     return notes
 
 # ---------- 上傳音檔 → 轉 MIDI → 進入編輯頁 ----------
-@app.route('/audio-upload', methods=['POST'])
+@app.route('/audio-upload', methods=['GET', 'POST'])
 def upload_file():
     # 1) 檢查檔案
-    if 'file' not in request.files:
-        return "錯誤：沒有檔案被上傳。"
+    if request.method == 'GET':
+        return redirect(url_for('index'))   # 直接回首頁重新上傳
     file = request.files['file']
     if file.filename == '':
         return "錯誤：未選擇檔案。"
@@ -147,12 +147,19 @@ def save_midi():
         pdf_rel = os.path.relpath(os.path.abspath(pdf_path),
                                   start=os.path.abspath(app.config['UPLOAD_FOLDER'])).replace(os.sep, '/')
 
+    # 新增：把剛輸出的 MIDI 也轉成相對 uploads/ 的路徑
+    midi_rel = os.path.relpath(os.path.abspath(midi_out),
+                           start=os.path.abspath(app.config['UPLOAD_FOLDER'])).replace(os.sep, '/')
+
+    # ...保留你處理 pdf_rel 的程式後...
+
     return render_template(
         'result.html',
         filename=os.path.basename(midi_out),
         filepath=midi_out,
         text_output=text_output,
-        pdf_rel=pdf_rel
+        pdf_rel=pdf_rel,
+        midi_rel=midi_rel,
     )
 
 @app.route('/download/<path:subpath>')
