@@ -1,3 +1,58 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8" />
+  <title>編輯單音旋律</title>
+  <style>
+    body{font-family:ui-sans-serif,system-ui,"Segoe UI","Noto Sans TC",Arial;margin:0;background:#f7f7f7;}
+    header{display:flex;justify-content:space-between;align-items:center;padding:12px 16px;background:#222;color:#fff;}
+    .meta{font-size:14px;opacity:.85}
+    .wrap{display:flex;gap:12px;padding:12px;}
+    .panel{background:#fff;border-radius:10px;box-shadow:0 6px 16px rgba(0,0,0,.08)}
+    #roll{width:1000px;height:420px;cursor:default;display:block;border-radius:10px;}
+    .side{padding:12px 16px}
+    .btn{appearance:none;border:0;border-radius:8px;padding:10px 14px;background:#0b79d0;color:#fff;font-weight:600;cursor:pointer}
+    .row{display:flex;gap:10px;align-items:center;margin:6px 0}
+    .hint{font-size:13px;color:#555}
+    ul{margin:6px 0 0 16px;padding:0}
+  </style>
+</head>
+<body>
+<header>
+  <div>
+    <div><strong>單音鋼琴捲軸編輯器</strong></div>
+    <div class="meta">檔案：{{ filename }}　BPM: {{ bpm }}　拍號：{{ numerator }}/{{ denominator }}</div>
+  </div>
+  <div class="row">
+    <button id="exportBtn" class="btn">輸出成單音 MIDI → 產生簡譜</button>
+  </div>
+</header>
+
+<!-- 這個 cfg、init-notes、canvas 都是必要的 DOM -->
+<div id="cfg"
+     data-bpm="{{ bpm }}"
+     data-num="{{ numerator }}"
+     data-den="{{ denominator }}"
+     data-upq="{{ units_per_quarter }}">
+</div>
+<script id="init-notes" type="application/json">{{ notes_json|safe }}</script>
+
+<div class="wrap">
+  <canvas id="roll" class="panel"></canvas>
+  <div class="panel side">
+    <div class="row"><strong>操作說明</strong></div>
+    <div class="hint">
+      <ul>
+        <li>拖曳音符移動；拖拉邊緣改長度</li>
+        <li>空白鍵切換「新增模式」；點擊格子新增音符</li>
+        <li>按一下音符刪除（右鍵也可刪除）</li>
+        <li>所有時間單位＝「格」；四分＝<span id="upqText"></span> 格</li>
+      </ul>
+      <p>※ 傳回後端時會自動單音化（遇重疊即切斷前一音）。</p>
+    </div>
+  </div>
+</div>
+
 <script>
   const cfgEl = document.getElementById('cfg');
   const UNITS_PER_QUARTER = parseInt(cfgEl.dataset.upq, 10);
@@ -8,12 +63,8 @@
   document.getElementById('upqText').textContent = String(UNITS_PER_QUARTER);
 
   const R = {
-    lanes: 48,
-    pitchMin: 48,
-    laneH: 16,
-    unitW: 12,
-    bars: 16,
-    unitsPerBar: NUM * (UNITS_PER_QUARTER * (4 / DEN))
+    lanes: 48, pitchMin: 48, laneH: 16, unitW: 12,
+    bars: 16, unitsPerBar: NUM * (UNITS_PER_QUARTER * (4 / DEN))
   };
 
   const cvs = document.getElementById('roll');
@@ -21,15 +72,12 @@
   cvs.height = R.laneH * R.lanes;
   const ctx = cvs.getContext('2d');
 
-  // CSS 像素 → canvas 內部像素
+  // CSS 像素 → canvas 內部像素（修正座標偏移）
   function getCanvasXY(evt){
     const rect = cvs.getBoundingClientRect();
     const scaleX = cvs.width  / rect.width;
     const scaleY = cvs.height / rect.height;
-    return {
-      x: (evt.clientX - rect.left) * scaleX,
-      y: (evt.clientY - rect.top)  * scaleY
-    };
+    return { x: (evt.clientX - rect.left) * scaleX, y: (evt.clientY - rect.top) * scaleY };
   }
 
   let notes = INIT_NOTES.map(n => ({ pitch: n.pitch, start: n.start, end: n.end }));
@@ -37,7 +85,6 @@
   let dragging = null;
 
   function updateCursor(){ cvs.style.cursor = modeAdd ? 'crosshair' : 'default'; }
-
   function pitchToLane(p){ return (R.pitchMin + R.lanes - 1) - p; }
   function laneToPitch(l){ return (R.pitchMin + R.lanes - 1) - l; }
   function xToUnit(x){ return Math.max(0, Math.round(x / R.unitW)); }
@@ -47,148 +94,99 @@
     ctx.clearRect(0,0,cvs.width,cvs.height);
     for(let l=0; l<R.lanes; l++){
       const pc = laneToPitch(l) % 12;
-      const isBlack = (pc===1||pc===3||pc===6||pc===8||pc===10);
-      ctx.fillStyle = isBlack ? '#f2f2f6' : '#f9f9fb';
+      ctx.fillStyle = (pc===1||pc===3||pc===6||pc===8||pc===10) ? '#f2f2f6' : '#f9f9fb';
       ctx.fillRect(0, l*R.laneH, cvs.width, R.laneH);
     }
     const totalUnits = R.unitsPerBar * R.bars;
     for(let u=0; u<=totalUnits; u++){
       ctx.beginPath();
-      ctx.moveTo(u*R.unitW, 0);
-      ctx.lineTo(u*R.unitW, cvs.height);
+      ctx.moveTo(u*R.unitW, 0); ctx.lineTo(u*R.unitW, cvs.height);
       ctx.strokeStyle = (u % R.unitsPerBar === 0) ? '#bbb' : (u % UNITS_PER_QUARTER === 0 ? '#ddd' : '#eee');
-      ctx.lineWidth = (u % R.unitsPerBar === 0) ? 1.2 : 1;
-      ctx.stroke();
+      ctx.lineWidth = (u % R.unitsPerBar === 0) ? 1.2 : 1; ctx.stroke();
     }
     notes.forEach(n=>{
-      const x  = n.start * R.unitW;
-      const w  = Math.max(1, (n.end - n.start) * R.unitW);
-      const y  = pitchToLane(n.pitch) * R.laneH + 2;
-      const h  = R.laneH - 4;
-      ctx.fillStyle = '#0b79d0';
-      ctx.fillRect(x, y, w, h);
-      ctx.fillStyle = '#084d80';
-      ctx.fillRect(x, y, 4, h);
-      ctx.fillRect(x + w - 4, y, 4, h);
+      const x=n.start*R.unitW, w=Math.max(1,(n.end-n.start)*R.unitW);
+      const y=pitchToLane(n.pitch)*R.laneH+2, h=R.laneH-4;
+      ctx.fillStyle='#0b79d0'; ctx.fillRect(x,y,w,h);
+      ctx.fillStyle='#084d80'; ctx.fillRect(x,y,4,h); ctx.fillRect(x+w-4,y,4,h);
     });
-    if(modeAdd){
-      ctx.fillStyle = 'rgba(11,121,208,.08)';
-      ctx.fillRect(0, 0, cvs.width, cvs.height);
-    }
+    if(modeAdd){ ctx.fillStyle='rgba(11,121,208,.08)'; ctx.fillRect(0,0,cvs.width,cvs.height); }
   }
 
-  // 加入 3px 緩衝，較好點擊；邊緣判斷仍用原邊界
-  function hitTest(x, y, pad = 3){
+  // 命中測試（加 3px 緩衝，較好點）
+  function hitTest(x, y, pad=3){
     for(let i=notes.length-1;i>=0;i--){
-      const n = notes[i];
-      const baseX1 = n.start * R.unitW;
-      const baseX2 = n.end   * R.unitW;
-      const y1 = pitchToLane(n.pitch)*R.laneH + 2;
-      const y2 = y1 + (R.laneH - 4);
-      const x1 = baseX1 - pad, x2 = baseX2 + pad, yy1 = y1 - pad, yy2 = y2 + pad;
-      if(x>=x1 && x<=x2 && y>=yy1 && y<=yy2){
-        const edge = (x - baseX1 < 6) ? 'left' : ((baseX2 - x < 6) ? 'right' : null);
-        return {idx:i, edge:edge};
+      const n=notes[i], bx1=n.start*R.unitW, bx2=n.end*R.unitW;
+      const y1=pitchToLane(n.pitch)*R.laneH+2, y2=y1+(R.laneH-4);
+      if(x>=bx1-pad && x<=bx2+pad && y>=y1-pad && y<=y2+pad){
+        const edge=(x-bx1<6)?'left':((bx2-x<6)?'right':null);
+        return {idx:i, edge};
       }
-    }
-    return null;
+    } return null;
   }
 
   cvs.addEventListener('mousedown', e=>{
-    const {x, y} = getCanvasXY(e);
-    const hit = hitTest(x, y);
+    const {x,y}=getCanvasXY(e); const hit=hitTest(x,y);
     if(modeAdd && !hit){
-      const lane = yToLane(y);
-      notes.push({ pitch: laneToPitch(lane), start: xToUnit(x), end: xToUnit(x)+UNITS_PER_QUARTER });
-      draw();
-      return;
+      const lane=yToLane(y); notes.push({pitch:laneToPitch(lane), start:xToUnit(x), end:xToUnit(x)+UNITS_PER_QUARTER});
+      draw(); return;
     }
     if(hit){
-      const n = notes[hit.idx];
-      dragging = {
-        idx: hit.idx,
-        edge: hit.edge,
-        offU: xToUnit(x) - n.start,
-        offLane: yToLane(y) - pitchToLane(n.pitch)
-      };
+      const n=notes[hit.idx];
+      dragging={idx:hit.idx, edge:hit.edge, offU:xToUnit(x)-n.start, offLane:yToLane(y)-pitchToLane(n.pitch)};
     }
   });
 
   window.addEventListener('mousemove', e=>{
     if(!dragging) return;
-    const {x, y} = getCanvasXY(e);
-    const u = xToUnit(x);
-    const lane = yToLane(y);
-    const n = notes[dragging.idx];
-    if(dragging.edge === 'left'){
-      n.start = Math.min(n.end-1, u);
-    }else if(dragging.edge === 'right'){
-      n.end = Math.max(n.start+1, u);
-    }else{
-      const dur = n.end - n.start;
-      n.start = Math.max(0, u - dragging.offU);
-      n.end   = n.start + dur;
-      const newLane = pitchToLane(n.pitch) + (lane - (pitchToLane(n.pitch) + dragging.offLane));
-      n.pitch = laneToPitch(Math.max(0, Math.min(R.lanes-1, newLane)));
+    const {x,y}=getCanvasXY(e); const u=xToUnit(x), lane=yToLane(y);
+    const n=notes[dragging.idx];
+    if(dragging.edge==='left'){ n.start=Math.min(n.end-1,u); }
+    else if(dragging.edge==='right'){ n.end=Math.max(n.start+1,u); }
+    else{
+      const dur=n.end-n.start; n.start=Math.max(0,u-dragging.offU); n.end=n.start+dur;
+      const newLane=pitchToLane(n.pitch)+(lane-(pitchToLane(n.pitch)+dragging.offLane));
+      n.pitch=laneToPitch(Math.max(0,Math.min(R.lanes-1,newLane)));
     }
     draw();
   });
 
-  window.addEventListener('mouseup', ()=>{ dragging = null; });
+  window.addEventListener('mouseup', ()=>{ dragging=null; });
 
-  // 點到音符就刪；沒命中且在新增模式才新增（mousedowns 已處理新增，這裡主要刪）
+  // 點到音符就刪；沒命中且在新增模式才新增（保護手感）
   cvs.addEventListener('click', e=>{
-    const {x, y} = getCanvasXY(e);
-    const hit = hitTest(x, y);
-    if(hit){
-      notes.splice(hit.idx, 1);
-      draw();
-      return;
-    }
+    const {x,y}=getCanvasXY(e); const hit=hitTest(x,y);
+    if(hit){ notes.splice(hit.idx,1); draw(); return; }
     if(modeAdd){
-      const lane = yToLane(y);
-      notes.push({ pitch: laneToPitch(lane), start: xToUnit(x), end: xToUnit(x)+UNITS_PER_QUARTER });
+      const lane=yToLane(y); notes.push({pitch:laneToPitch(lane), start:xToUnit(x), end:xToUnit(x)+UNITS_PER_QUARTER});
       draw();
     }
   });
 
-  // 右鍵刪除（任何模式）
+  // 右鍵刪除
   cvs.addEventListener('contextmenu', e=>{
     e.preventDefault();
-    const {x, y} = getCanvasXY(e);
-    const hit = hitTest(x, y);
-    if (hit){
-      notes.splice(hit.idx, 1);
-      draw();
-    }
+    const {x,y}=getCanvasXY(e); const hit=hitTest(x,y);
+    if(hit){ notes.splice(hit.idx,1); draw(); }
   });
 
-  // 空白鍵切換新增模式 + 更新游標
+  // 空白鍵切換新增模式 + 游標提示
   window.addEventListener('keydown', e=>{
-    if(e.code === 'Space'){
-      e.preventDefault();
-      modeAdd = !modeAdd;
-      updateCursor();
-      draw();
-    }
+    if(e.code==='Space'){ e.preventDefault(); modeAdd=!modeAdd; updateCursor(); draw(); }
   });
 
-  // 匯出 → 後端 /save-midi
+  // 匯出
   document.getElementById('exportBtn').addEventListener('click', async ()=>{
     notes = notes.filter(n => n.end > n.start);
-    try{
-      const res = await fetch('/save-midi', {
-        method: 'POST',
-        headers: {'Content-Type':'application/json'},
-        body: JSON.stringify({ notes, bpm: BPM, numerator: NUM, denominator: DEN })
-      });
-      const html = await res.text();
-      document.open(); document.write(html); document.close();
-    }catch(err){
-      alert('送出失敗：' + err);
-    }
+    const res = await fetch('/save-midi', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ notes, bpm:BPM, numerator:NUM, denominator:DEN })
+    });
+    const html = await res.text(); document.open(); document.write(html); document.close();
   });
 
   updateCursor();
   draw();
 </script>
+</body>
+</html>

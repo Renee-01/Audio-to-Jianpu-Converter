@@ -1,5 +1,5 @@
 from flask import Flask, render_template, request, send_file, redirect, url_for
-import os, json
+import os, json, math
 from werkzeug.utils import secure_filename
 from MIDI_to_notation import convert_midi_to_jianpu
 from Audio_to_MIDI import audio_to_midi
@@ -35,6 +35,8 @@ def upload_file():
     # 1) 檢查檔案
     if request.method == 'GET':
         return redirect(url_for('index'))   # 直接回首頁重新上傳
+    if 'file' not in request.files:
+        return redirect(url_for('index'))
     file = request.files['file']
     if file.filename == '':
         return "錯誤：未選擇檔案。"
@@ -103,7 +105,7 @@ def save_midi():
     beat_sec = 60.0 / bpm
     sec_per_unit = beat_sec / GRID_UNITS_PER_QUARTER
 
-    # 單音化：遇到新音就截斷前音
+    # 1) 單音化：遇到新音就截斷前音
     notes_sorted = sorted(notes, key=lambda x: (x["start"], x["end"]))
     mono = []
     cur = None
@@ -111,12 +113,14 @@ def save_midi():
         s = float(n["start"]) * sec_per_unit
         e = float(n["end"])   * sec_per_unit
         p = int(n["pitch"])
-        if e <= s: e = s + sec_per_unit
+        if e <= s:
+            e = s + sec_per_unit
         if cur is None:
             cur = {"start": s, "end": e, "pitch": p}
             continue
         if s >= cur["end"]:
-            mono.append(cur); cur = {"start": s, "end": e, "pitch": p}
+            mono.append(cur)
+            cur = {"start": s, "end": e, "pitch": p}
         else:
             if s > cur["start"]:
                 cur["end"] = s
@@ -126,10 +130,26 @@ def save_midi():
     if cur and cur["end"] > cur["start"]:
         mono.append(cur)
 
+    # 2) 小節切齊，避免 LilyPond barcheck fail
+    bar_len_sec = numerator * beat_sec * (4.0 / denominator)
+    EPS = 1e-7
+    split_notes = []
+    for n in mono:
+        s, e, p = n["start"], n["end"], n["pitch"]
+        while s < e - EPS:
+            bar_end = (math.floor(s / bar_len_sec) + 1) * bar_len_sec
+            te = min(e, bar_end - EPS)               # 不要剛好卡在小節線
+            if te <= s + EPS:                        # 安全閥：至少一格
+                te = min(e, s + sec_per_unit)
+            split_notes.append({"start": s, "end": te, "pitch": p})
+            s = te
+
+    # 3) 寫成新的 MIDI（只寫 split_notes）
     pm = pretty_midi.PrettyMIDI()
     inst = pretty_midi.Instrument(program=0)
-    for n in mono:
-        inst.notes.append(pretty_midi.Note(velocity=96, pitch=n["pitch"], start=n["start"], end=n["end"]))
+    for n in split_notes:
+        inst.notes.append(pretty_midi.Note(
+            velocity=96, pitch=n["pitch"], start=n["start"], end=n["end"]))
     pm.instruments.append(inst)
 
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -138,20 +158,21 @@ def save_midi():
     midi_out = os.path.join(out_dir, f"edited_{ts}.mid")
     pm.write(midi_out)
 
-    result = convert_midi_to_jianpu(midi_out, bpm, numerator, denominator)
-    text_output = result.get('text_output', '')
-    pdf_path = result.get('pdf_path')
+    # 4) 轉簡譜（產 PDF 可能失敗，但頁面一樣要顯示）
+    text_output, pdf_rel = "", None
+    try:
+        result = convert_midi_to_jianpu(midi_out, bpm, numerator, denominator)
+        text_output = result.get('text_output', '')
+        pdf_path = result.get('pdf_path')
+        if pdf_path and os.path.exists(pdf_path):
+            pdf_rel = os.path.relpath(os.path.abspath(pdf_path),
+                                      start=os.path.abspath(app.config['UPLOAD_FOLDER'])).replace(os.sep, '/')
+    except Exception as ex:
+        # 把錯誤訊息帶到頁面，但不中斷
+        text_output = f"（產生 PDF 失敗）{ex}\n" + text_output
 
-    pdf_rel = None
-    if pdf_path and os.path.exists(pdf_path):
-        pdf_rel = os.path.relpath(os.path.abspath(pdf_path),
-                                  start=os.path.abspath(app.config['UPLOAD_FOLDER'])).replace(os.sep, '/')
-
-    # 新增：把剛輸出的 MIDI 也轉成相對 uploads/ 的路徑
     midi_rel = os.path.relpath(os.path.abspath(midi_out),
-                           start=os.path.abspath(app.config['UPLOAD_FOLDER'])).replace(os.sep, '/')
-
-    # ...保留你處理 pdf_rel 的程式後...
+                               start=os.path.abspath(app.config['UPLOAD_FOLDER'])).replace(os.sep, '/')
 
     return render_template(
         'result.html',
@@ -161,6 +182,7 @@ def save_midi():
         pdf_rel=pdf_rel,
         midi_rel=midi_rel,
     )
+
 
 @app.route('/download/<path:subpath>')
 def download_file(subpath):
