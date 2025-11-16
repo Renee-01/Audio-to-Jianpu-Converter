@@ -1,363 +1,196 @@
+# MIDI_to_notation.py
+"""
+把 MIDI 檔轉成簡譜（jianpu-ly + LilyPond 排版）的工具函式。
+
+Pipeline:
+    MIDI
+      └─(MuseScore)──> MusicXML (.mxl)
+            └─(musicxml_to_jianpu)──> jianpu-ly 簡譜文字 (.txt)
+                  └─(jianpu-ly)──> LilyPond 檔 (.ly)
+                        └─(lilypond)──> PDF
+
+主要提供兩個高階 API：
+    - midi_to_jianpu_pdf_bytes(midi_path) -> bytes
+    - midi_to_jianpu_text(midi_path) -> str
+
+外部相依程式請先裝好：
+    - MuseScore 4 CLI
+    - Python 版 musicxml_to_jianpu（converter.py）
+    - jianpu-ly（pip 安裝）
+    - lilypond
+"""
+
 import os
-import pretty_midi
-from tkinter import Tk, filedialog
-from dataclasses import dataclass
 import subprocess
-from datetime import datetime
-import webbrowser
-# ===================== 參數 =====================
-UNITS_PER_QUARTER = 16  # 四分音符 = 16 格（= 1 拍 = 16 格）
-ALLOWED_UNITS = [64, 32, 16, 8, 4, 2, 1]  # 允許的時值格數
-COMMON_UNITS  = [1, 2, 3, 4, 6, 8, 12, 16, 24, 32, 48, 64]  # 常見音價，用來吸附誤差
-
-JIANPU_SCRIPT = r"C:\lilypond-2.24.4\jianpu-ly.py"
-LILYPOND_EXE  = r"C:\lilypond-2.24.4\bin\lilypond.exe"
-
-# ===================== 資料結構 =====================
-@dataclass
-class GridNote:
-    symbol: str
-    start_u: int
-    end_u: int
-# ===================== 工具函式 =====================
-def midi_to_jianpu(pitch: int) -> str:
-    scale_map = {
-        0: '1', 1: '#1', 2: '2', 3: '#2', 4: '3',
-        5: '4', 6: '#4', 7: '5', 8: '#5', 9: '6', 10: '#6', 11: '7'
-    }
-    octave = pitch // 12 - 1
-    note_in_octave = pitch % 12
-    base = scale_map.get(note_in_octave, '?')
-    if octave == 4: return base
-    elif octave == 5: return base + '\''
-    elif octave == 3: return base + ','
-    elif octave > 5: return base + '\'' * (octave - 4)
-    elif octave < 3: return base + ',' * (4 - octave)
-    else: return base
-
-def get_units_per_bar(numerator: int, denominator: int) -> int:
-    """以四分=16格為基準，計算一小節的格數"""
-    quarter_equiv = 4 / denominator
-    units_per_note = UNITS_PER_QUARTER * quarter_equiv
-    return int(numerator * units_per_note)
-
-def sec_to_unit(t_sec: float, sec_per_unit: float) -> int:
-    return int(round(t_sec / sec_per_unit))
-
-def snap_to_common_units(real_units: float, tol: float = 4.0) -> int:
-    nearest = min(COMMON_UNITS, key=lambda u: abs(real_units - u))
-    if abs(real_units - nearest) <= tol:
-        return int(nearest)
-    return int(round(real_units))
-
-def split_across_bars(start_u: int, end_u: int, units_per_bar: int):
-    parts = []
-    pos = start_u
-    while pos < end_u:
-        bar_end = ((pos // units_per_bar) + 1) * units_per_bar
-        piece_end = min(bar_end, end_u)
-        parts.append((pos, piece_end))
-        pos = piece_end
-    return parts
-
-def decompose_units(units: int):
-    """
-    將時值（格）拆成 16/8/4/2/1 的序列。
-    先用盡可能多的 16（四分音符），再用 8/4/2/1 補尾數。
-    """
-    out = []
-    if units >= 16:
-        n16 = units // 16
-        out.extend([16] * n16)
-        rem = units - 16 * n16
-    else:
-        rem = units
-
-    for u in (8, 4, 2, 1):
-        while rem >= u:
-            out.append(u)
-            rem -= u
-        if rem == 0:
-            break
-    return out
-
-def tokens_from_units(symbol: str, units: int) -> str:
-    """
-    - 首段：16 -> '音符'；<16 -> '前綴+音符'（如 q4）
-    - 續段：
-        * 16  -> 獨立一個 '-'（用空白分隔）
-        * 8/4/2/1 -> 獨立 '前綴-'（如 q- / s- / d- / h-）
-    例：
-      64 -> [16,16,16,16]   => '4 - - -'
-      32 -> [16,16]         => '4 -'
-      24 -> [16,8]          => '4 q-'
-      40 -> [16,16,8]       => '4 - q-'
-      17 -> [16,1]          => '4 h-'
-      8  -> [8]             => 'q4'
-    """
-    chunks = decompose_units(units)
-    if not chunks:
-        return symbol
-
-    tokens = []
-
-    # 首段
-    first = chunks[0]
-    if first == 16:
-        tokens.append(f"{symbol}")
-    else:
-        tokens.append(f"{unit_to_prefix(first)}{symbol}")
-
-    # 續段：獨立 token
-    for u in chunks[1:]:
-        if u == 16:
-            tokens.append("-")
-        else:
-            tokens.append(f"{unit_to_prefix(u)}-")
-
-    return " ".join(tokens)
+import tempfile
+from io import BytesIO
+from pathlib import Path
 
 
+# ====== 這幾個路徑依你的環境調整一下 ======
+
+# MuseScore CLI 執行檔
+MUSESCORE_BIN = os.getenv(
+    "MUSESCORE_BIN",
+    r"C:\Program Files\MuseScore 4\bin\MuseScore4.exe",
+)
+
+# musicxml_to_jianpu 專案裡的 converter.py 路徑
+MUSICXML_TO_JIANPU_CONVERTER = os.getenv(
+    "MUSICXML_TO_JIANPU_CONVERTER",
+    r"D:\tools\musicxml_to_jianpu\converter.py",
+)
+
+# jianpu-ly 指令（如果在 venv 裡有裝，通常就叫 jianpu-ly）
+JIANPU_LY_CMD = os.getenv("JIANPU_LY_CMD", "jianpu-ly")
+
+# lilypond 指令名
+LILYPOND_CMD = os.getenv("LILYPOND_CMD", "lilypond")
 
 
-def decompose_units_small_first(units: int):
-    out, rem = [], units
-    for u in reversed(ALLOWED_UNITS):  # 1,2,4,8,16,32,64
-        while rem >= u:
-            out.append(u); rem -= u
-        if rem == 0: break
-    return out
+# ====== 小工具：包一層 subprocess.run，順便丟出錯誤訊息 ======
 
-def unit_to_prefix(u: int) -> str:
-    if   u == 16: return ""
-    elif u == 8:  return "q"
-    elif u == 4:  return "s"
-    elif u == 2:  return "d"
-    elif u == 1:  return "h"
-    else:         return ""
-
-
-def make_rest_tokens_barwise(remain_units: int, denominator: int) -> list[str]:
-    """
-    以『大到小』補休止；優先用分母對應單位（但不超過四分=16格），
-    再用 8、4、2、1 依序補。避免 32/64 這種休止單位造成視覺混亂。
-    例如：
-    4/4：先 16，再 8/4/2/1  → 會得到 0 0 0 這種清楚的四分休止
-    6/8：先 8，再 4/2/1      → q0 q0 q0...
-    """
-    # 分母對應的單位（用四分=16格為基準）
-    units_per_note = int(UNITS_PER_QUARTER * (4 / denominator))
-    # 為了視覺清楚，不讓 32/64 變成單一休止：把最大休止單位限制在 16
-    base = min(UNITS_PER_QUARTER, units_per_note)  # 例如 3/2 → 32 也會被視為 16+16
-
-    order = [base, 8, 4, 2, 1]           # 大到小
-    order = [u for u in order if u >= 1] # 保險過濾
-
-    tokens = []
-    rem = remain_units
-
-    # 先用大單位盡量填滿
-    for u in order:
-        if rem <= 0:
-            break
-        count = rem // u
-        if count > 0:
-            pref = unit_to_prefix(u)
-            tokens.extend([f"{pref}0"] * count)
-            rem -= u * count
-
-    # 若仍有極小尾數，改用小到大補完（通常不會進來）
-    for u in [1, 2, 4, 8]:
-        while rem >= u:
-            tokens.append(f"{unit_to_prefix(u)}0")
-            rem -= u
-
-    return tokens
-
-# 開啟 PDF
-def openPDF(pdf_path: str):
-
-    if os.path.exists(pdf_path):
-        webbrowser.open(pdf_path)
-        print("✅ PDF 已開啟。")
-    else:
-        print("❌ PDF 產出失敗。檔案夾：", pdf_path)
-
-def convert_midi_to_jianpu(midi_path: str,bpm: float ,numerator: int ,denominator: int ) -> str:
-    
-    # 換算
-    beat_sec     = 60.0 / bpm
-    sec_per_unit = beat_sec / UNITS_PER_QUARTER
-    UNITS_PER_BAR = get_units_per_bar(numerator, denominator)
-    print(f"✅ {numerator}/{denominator}：一小節 {UNITS_PER_BAR} 格；四分={UNITS_PER_QUARTER} 格；每格={sec_per_unit:.6f}s")
-
-    # 讀 MIDI → grid notes
-    midi = pretty_midi.PrettyMIDI(midi_path)
-    if not midi.instruments:
-        print("❌ 這個 MIDI 沒有軌。")
-        raise SystemExit
-    notes = sorted(midi.instruments[0].notes, key=lambda n: (n.start, n.end))
-
-    grid_notes = []
-    for n in notes:
-        symbol = midi_to_jianpu(n.pitch)
-        su = sec_to_unit(n.start, sec_per_unit)
-        real_units = (n.end - n.start) / sec_per_unit
-        dur_u = snap_to_common_units(real_units, tol=4.0)
-        eu = su + max(dur_u, 1)
-        if eu <= su:
-            continue
-        grid_notes.append(GridNote(symbol, su, eu))
-
-    # 切分跨小節、加 ~
-    bars_tokens = {}
-    bars_used   = {}
-
-    for note in grid_notes:
-        slices = split_across_bars(note.start_u, note.end_u, UNITS_PER_BAR)
-        for i, (s, e) in enumerate(slices):
-            dur = e - s
-            if dur <= 0:
-                continue
-            token_str = tokens_from_units(note.symbol, dur)
-            bar_idx = s // UNITS_PER_BAR
-            tie_to_next = (i < len(slices) - 1)
-            if tie_to_next:
-                token_str = token_str + " ~"
-            bars_tokens.setdefault(bar_idx, []).append(token_str)
-            bars_used[bar_idx] = bars_used.get(bar_idx, 0) + dur
-
-    # 組裝每小節，只補最後一小節休止
-    # === 組裝每小節，只補最後一小節休止（含清掉殘留的 ~）===
-    max_bar = max(bars_tokens.keys()) if bars_tokens else -1
-    per_bar_texts = []
-    for b in range(0, max_bar + 1):
-        tokens = bars_tokens.get(b, [])
-
-        # 清掉該小節最後一個 token 尾端可能殘留的 " ~"
-        if tokens and tokens[-1].endswith(" ~"):
-            tokens[-1] = tokens[-1][:-2].rstrip()
-
-        if b == max_bar:  # 只補最後一小節
-            used = bars_used.get(b, 0)
-            remain = UNITS_PER_BAR - used
-            if remain > 0:
-                tokens += make_rest_tokens_barwise(remain, denominator)
-
-        # 再保險一次：若最後一個 token 仍有 "~"，去掉
-        if tokens and tokens[-1].endswith("~"):
-            tokens[-1] = tokens[-1].rstrip("~").rstrip()
-
-        per_bar_texts.append(" ".join(tokens).strip())
-
-    # 組好整段簡譜；只在結尾補一個 barline
-    jianpu_text = " | ".join(per_bar_texts).strip()
-    if jianpu_text and not jianpu_text.endswith("|"):
-        jianpu_text += " |"
-
-
-
-    # 以檔名當標題
-    song_title = os.path.splitext(os.path.basename(midi_path))[0]
-
-    # 依 jianpu-ly.py 範例加入檔頭
-    header = (
-        "% jianpu-ly.py 文檔\n"
-        f"title={song_title}\n"
-        f"{numerator}/{denominator}\n"
-        "\n"  # 空行，與正文分隔
+def _run(cmd, **kwargs):
+    """執行外部指令，失敗時丟 RuntimeError，方便 debug。"""
+    result = subprocess.run(
+        cmd,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        **kwargs,
     )
+    if result.returncode != 0:
+        raise RuntimeError(
+            f"Command failed: {' '.join(map(str, cmd))}\n"
+            f"stdout:\n{result.stdout}\n\nstderr:\n{result.stderr}"
+        )
+    return result
 
-    full_text = header + jianpu_text + "\n"
 
-    # 儲存 txt
-    timestamp = datetime.now().strftime("%Y-%m-%d_%H%M")
-    base_name = f"output_{timestamp}"
-    output_dir = os.path.join(os.path.dirname(midi_path), "output", base_name)
-    os.makedirs(output_dir, exist_ok=True)
+# ====== 單一步驟的封裝 ======
 
-    output_txt = os.path.join(output_dir, f"{base_name}.txt")
-    with open(output_txt, "w", encoding="utf-8", newline="\n") as f:
-        f.write(full_text)  # ← 這裡改成寫 full_text
-    print(f"✅ 簡譜已儲存：{output_txt}")
+def midi_to_musicxml(midi_path: str, xml_path: str) -> None:
+    """用 MuseScore 把 MIDI 轉成 MusicXML (.mxl / .musicxml)"""
+    _run([MUSESCORE_BIN, midi_path, "-o", xml_path])
 
-    # 產生 .ly
-    output_ly  = os.path.join(output_dir, f"{base_name}.ly")
-    output_pdf = os.path.join(output_dir, f"{base_name}.pdf")
 
-    with open(output_txt, "r", encoding="utf-8") as fin, open(output_ly, "w", encoding="utf-8") as fout:
-        subprocess.run(["python", JIANPU_SCRIPT], stdin=fin, stdout=fout, check=False)
+def musicxml_to_jianpu_text(xml_path: str, txt_path: str) -> None:
+    """
+    用 musicxml_to_jianpu 把 MusicXML 轉成 jianpu-ly 語法的簡譜文字。
+    """
+    converter = MUSICXML_TO_JIANPU_CONVERTER
+    cmd = ["python", converter, "--grammar", "jianpu-ly", xml_path]
+    with open(txt_path, "w", encoding="utf-8") as f:
+        result = _run(cmd)
+        f.write(result.stdout)
 
-    # 補上 \version
-    try:
-        with open(output_ly, "r", encoding="utf-8") as f:
-            ly_src = f.read()
-        if "\\version" not in ly_src:
-            ly_src = '\\version "2.24.4"\n' + ly_src
-            with open(output_ly, "w", encoding="utf-8") as f:
-                f.write(ly_src)
-    except Exception as e:
-        print("⚠️ 處理 .ly 時發生例外：", e)
 
-    # LilyPond → PDF
-    subprocess.run([LILYPOND_EXE, "-o", base_name, f"{base_name}.ly"], cwd=output_dir, check=False)
+def jianpu_text_to_ly(txt_path: str, ly_path: str) -> None:
+    """用 jianpu-ly 把簡譜文字轉成 LilyPond 檔。"""
+    cmd = [JIANPU_LY_CMD, txt_path]
+    result = _run(cmd)
+    with open(ly_path, "w", encoding="utf-8") as f:
+        f.write(result.stdout)
 
-    if not os.path.exists(output_pdf):
-        for f in os.listdir(output_dir):
-            if f.lower().endswith(".pdf"):
-                output_pdf = os.path.join(output_dir, f)
-                break
 
-    
-    with open(output_txt, "r", encoding="utf-8") as f:
-        text_output = f.read()
-    
-    return {
-        "text_output": text_output,
-        "pdf_path": output_pdf if os.path.exists(output_pdf) else None
-    }
+def ly_to_pdf(ly_path: str, pdf_base: str) -> str:
+    """
+    用 LilyPond 把 .ly 轉成 PDF。
+    pdf_base 不含副檔名，最後會回傳實際的 pdf 路徑。
+    """
+    cmd = [LILYPOND_CMD, "-o", pdf_base, ly_path]
+    _run(cmd)
+    pdf_path = pdf_base + ".pdf"
+    if not os.path.exists(pdf_path):
+        raise RuntimeError(f"LilyPond did not produce PDF at {pdf_path}")
+    return pdf_path
 
-#________________main________________
-def main():
-    # 1) 選檔
-    Tk().withdraw()
-    midi_path = filedialog.askopenfilename(title="選擇 MIDI 檔案", filetypes=[("MIDI files", "*.mid *.midi")])
+
+# ====== 對外主要 API ======
+
+def midi_to_jianpu_text(midi_path: str) -> str:
+    """
+    輸入 MIDI 檔路徑，回傳 jianpu-ly 簡譜文字（方便你丟到 HTML / 其他系統用）。
+
+    這個函式只做到 MusicXML -> 簡譜文字，不會產生 PDF。
+    """
+    midi_path = str(midi_path)
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        tmpdir = Path(tmpdir)
+        xml_path = tmpdir / "score.mxl"
+        txt_path = tmpdir / "score.txt"
+
+        # 1) MIDI -> MusicXML
+        midi_to_musicxml(midi_path, str(xml_path))
+
+        # 2) MusicXML -> jianpu-ly 文字
+        musicxml_to_jianpu_text(str(xml_path), str(txt_path))
+
+        # 讀出文字結果
+        return txt_path.read_text(encoding="utf-8")
+
+
+def midi_to_jianpu_pdf_bytes(midi_path: str) -> bytes:
+    """
+    輸入 MIDI 檔路徑，回傳簡譜 PDF 的 bytes。
+    可以直接給 Flask 的 send_file(BytesIO(...)) 使用。
+    """
+    midi_path = str(midi_path)
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        tmpdir = Path(tmpdir)
+        xml_path = tmpdir / "score.mxl"
+        txt_path = tmpdir / "score.txt"
+        ly_path = tmpdir / "score.ly"
+        pdf_base = tmpdir / "score"
+
+        # 1) MIDI -> MusicXML
+        midi_to_musicxml(midi_path, str(xml_path))
+
+        # 2) MusicXML -> jianpu-ly 文字
+        musicxml_to_jianpu_text(str(xml_path), str(txt_path))
+
+        # 3) 簡譜文字 -> .ly
+        jianpu_text_to_ly(str(txt_path), str(ly_path))
+
+        # 4) .ly -> PDF
+        pdf_path = ly_to_pdf(str(ly_path), str(pdf_base))
+
+        # 讀回 bytes
+        return Path(pdf_path).read_bytes()
+
+
+# ====== 簡單 CLI，用來單機測試 ======
+if __name__ == "__main__":
+    import sys
+    from tkinter import Tk, filedialog
+
+    # 如果有給參數：python MIDI_to_notation.py foo.mid
+    if len(sys.argv) > 1:
+        midi_path = sys.argv[1]
+    else:
+        # 1) 用對話框選檔
+        root = Tk()
+        root.withdraw()  # 不要顯示主視窗
+        midi_path = filedialog.askopenfilename(
+            title="選擇 MIDI 檔案",
+            filetypes=[("MIDI files", "*.mid *.midi")]
+        )
+        root.destroy()
+
     if not midi_path:
         print("❌ 未選取檔案。")
         raise SystemExit
-    print(f"✅ 載入檔案：{os.path.basename(midi_path)}")
-
-    # 2) BPM / 拍號
-    try:
-        bpm = float(input("請輸入 BPM（預設 80）：") or 80)
-    except ValueError:
-        print("⚠️ 無效輸入，使用預設 BPM = 80")
-        bpm = 80.0
-    try:
-
-        numerator = int(input("請輸入拍號分子 (預設=4)：") or 4)
-        denominator = int(input("請輸入拍號分母 (預設=4)：") or 4)
-    except ValueError:
-        print("⚠️ 無效輸入，使用預設 4/4")
-        numerator, denominator = 4, 4
 
     print(f"✅ 載入檔案：{os.path.basename(midi_path)}")
-    print(f"▶ 開始轉檔: {midi_path}")
-    print(f"  BPM={bpm}, 拍號={numerator}/{denominator}")
 
-    result = convert_midi_to_jianpu(midi_path, bpm, numerator, denominator)
-    text_output = result.get("text_output", "")
-    pdf_path = result.get("pdf_path")
+    # 2) 產生簡譜 PDF
+    pdf_bytes = midi_to_jianpu_pdf_bytes(midi_path)
 
-    print("\n===== Jianpu Output (前 500 字) =====")
-    print(text_output[:500] + ("..." if len(text_output) > 500 else ""))
+    # 輸出在「同一個資料夾」，檔名改成 .jianpu.pdf
+    out_path = Path(midi_path).with_suffix(".jianpu.pdf")
+    out_path.write_bytes(pdf_bytes)
 
-    if pdf_path and os.path.exists(pdf_path):
-        print(f"\n✅ PDF 已輸出: {pdf_path}")
-    else:
-        print("\n⚠ 沒有產生 PDF。")
+    print(f"🎼 已輸出: {out_path}")
 
-    openPDF(pdf_path)
-
-if __name__ == "__main__":
-    main()
