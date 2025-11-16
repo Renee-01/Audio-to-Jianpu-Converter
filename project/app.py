@@ -1,5 +1,6 @@
-from flask import Flask, render_template, request, send_file
 import os
+import traceback
+from flask import Flask, render_template, request, send_file
 from werkzeug.utils import secure_filename
 from MIDI_to_notation import convert_midi_to_jianpu
 from Audio_to_MIDI import audio_to_midi
@@ -34,7 +35,7 @@ def upload_file():
     audio_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
     file.save(audio_path)
 
-    # 3) 參數
+    """    # 3) 參數
     try:
         bpm = float(request.form.get('bpm', 80))
     except ValueError:
@@ -43,17 +44,31 @@ def upload_file():
         numerator = int(request.form.get('numerator', 4))
         denominator = int(request.form.get('denominator', 4))
     except ValueError:
-        numerator, denominator = 4, 4
+        numerator, denominator = 4, 4"""
 
     # 4) 音訊 -> MIDI
+    # 讀取「是否需要消除伴奏」核取方塊（有勾選 → True）
+    remove_accompaniment = request.form.get('remove_accompaniment') == '1'
+
     try:
-        midi_path = audio_to_midi(audio_path, out_dir=app.config['UPLOAD_FOLDER'])
+        midi_path = audio_to_midi(
+            audio_path,
+            out_dir=app.config['UPLOAD_FOLDER'],
+            remove_accompaniment=remove_accompaniment
+        )
         midi_path = os.path.abspath(midi_path)
-    except Exception as e:
+
+    except FileNotFoundError as e:
+        # 這通常是 demucs 指令沒找到 / 音檔不存在
         return f"❌ 音訊轉 MIDI 失敗：{e}"
+    except Exception as e:
+        # 可以在 console 印完整 traceback，方便你 debug
+        traceback.print_exc()
+        return f"❌ 音訊轉 MIDI 發生未知錯誤：{e}"
+
 
     # 5) MIDI -> 簡譜 + PDF
-    result = convert_midi_to_jianpu(midi_path, bpm, numerator, denominator)
+    result = convert_midi_to_jianpu(midi_path)
     text_output = result.get('text_output', '')
     pdf_path = result.get('pdf_path')
 

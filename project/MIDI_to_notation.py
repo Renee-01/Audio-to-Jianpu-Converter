@@ -25,6 +25,8 @@ import subprocess
 import tempfile
 from io import BytesIO
 from pathlib import Path
+from tkinter import Tk, filedialog
+from datetime import datetime
 
 
 # ====== 這幾個路徑依你的環境調整一下 ======
@@ -38,33 +40,51 @@ MUSESCORE_BIN = os.getenv(
 # musicxml_to_jianpu 專案裡的 converter.py 路徑
 MUSICXML_TO_JIANPU_CONVERTER = os.getenv(
     "MUSICXML_TO_JIANPU_CONVERTER",
-    r"D:\tools\musicxml_to_jianpu\converter.py",
+    r"D:\Audio-to-Jianpu-Converter\musicxml_to_jianpu\converter.py",
 )
 
 # jianpu-ly 指令（如果在 venv 裡有裝，通常就叫 jianpu-ly）
-JIANPU_LY_CMD = os.getenv("JIANPU_LY_CMD", "jianpu-ly")
+JIANPU_LY_CMD = os.getenv("JIANPU_LY_CMD", r"C:\Users\lulu1\anaconda3\envs\pitch-env\Scripts\jianpu-ly.exe")
 
 # lilypond 指令名
-LILYPOND_CMD = os.getenv("LILYPOND_CMD", "lilypond")
+LILYPOND_CMD = os.getenv("LILYPOND_CMD", r"C:\lilypond-2.24.4\bin\lilypond.exe")
 
 
 # ====== 小工具：包一層 subprocess.run，順便丟出錯誤訊息 ======
 
 def _run(cmd, **kwargs):
-    """執行外部指令，失敗時丟 RuntimeError，方便 debug。"""
+    """
+    執行外部指令，捕捉 stdout/stderr（用 bytes），失敗時丟 RuntimeError。
+    不使用 text=True，避免 Windows cp950 解碼炸掉。
+    """
     result = subprocess.run(
         cmd,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
-        text=True,
+        # 不要加 text=True / encoding=...
         **kwargs,
     )
+
     if result.returncode != 0:
+        # 安全解碼：先試 UTF-8，不行就 cp950，都用 errors="ignore"
+        def _safe_decode(b):
+            if b is None:
+                return ""
+            try:
+                return b.decode("utf-8", errors="ignore")
+            except Exception:
+                return b.decode("cp950", errors="ignore")
+
+        stdout_text = _safe_decode(result.stdout)
+        stderr_text = _safe_decode(result.stderr)
+
         raise RuntimeError(
             f"Command failed: {' '.join(map(str, cmd))}\n"
-            f"stdout:\n{result.stdout}\n\nstderr:\n{result.stderr}"
+            f"stdout:\n{stdout_text}\n\nstderr:\n{stderr_text}"
         )
+
     return result
+
 
 
 # ====== 單一步驟的封裝 ======
@@ -80,17 +100,32 @@ def musicxml_to_jianpu_text(xml_path: str, txt_path: str) -> None:
     """
     converter = MUSICXML_TO_JIANPU_CONVERTER
     cmd = ["python", converter, "--grammar", "jianpu-ly", xml_path]
+
+    result = _run(cmd)  # stdout 是 bytes
+
+    # 安全解碼成 str
+    try:
+        text = result.stdout.decode("utf-8")
+    except Exception:
+        text = result.stdout.decode("cp950", errors="ignore")
+
     with open(txt_path, "w", encoding="utf-8") as f:
-        result = _run(cmd)
-        f.write(result.stdout)
+        f.write(text)
 
 
 def jianpu_text_to_ly(txt_path: str, ly_path: str) -> None:
     """用 jianpu-ly 把簡譜文字轉成 LilyPond 檔。"""
     cmd = [JIANPU_LY_CMD, txt_path]
-    result = _run(cmd)
+
+    result = _run(cmd)  # stdout 是 bytes
+
+    try:
+        ly_text = result.stdout.decode("utf-8")
+    except Exception:
+        ly_text = result.stdout.decode("cp950", errors="ignore")
+
     with open(ly_path, "w", encoding="utf-8") as f:
-        f.write(result.stdout)
+        f.write(ly_text)
 
 
 def ly_to_pdf(ly_path: str, pdf_base: str) -> str:
@@ -159,25 +194,66 @@ def midi_to_jianpu_pdf_bytes(midi_path: str) -> bytes:
 
         # 讀回 bytes
         return Path(pdf_path).read_bytes()
+    
+def convert_midi_to_jianpu(midi_path: str) -> dict:
+    """
+    給 Flask app 用的高階函式：
+
+        - 輸入: MIDI 檔路徑
+        - 動作:
+            1) 呼叫 midi_to_jianpu_text() 取得簡譜文字
+            2) 呼叫 midi_to_jianpu_pdf_bytes() 產生 PDF bytes
+            3) 在 MIDI 檔所在目錄底下建立 output_YYYY-MM-DD_HHMM 資料夾
+            4) 將 PDF 寫成 <原檔名>.jianpu.pdf
+            5) （可選）也把簡譜文字存成 .jianpu.txt 方便 debug
+        - 回傳:
+            {
+              "text_output": <簡譜文字字串>,
+              "pdf_path":    <PDF 絕對路徑字串>
+            }
+    """
+    midi_path = Path(midi_path).resolve()
+
+    # 1) 先取得簡譜文字
+    text_output = midi_to_jianpu_text(str(midi_path))
+
+    # 2) 產生 PDF bytes
+    pdf_bytes = midi_to_jianpu_pdf_bytes(str(midi_path))
+
+    # 3) 在 MIDI 同一層建立 output_YYYY-MM-DD_HHMM 資料夾
+    ts = datetime.now().strftime("%Y-%m-%d_%H%M")
+    out_dir = midi_path.parent / f"output_{ts}"
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    # 4) PDF 檔名：<原檔名>.jianpu.pdf
+    pdf_path = out_dir / f"{midi_path.stem}.jianpu.pdf"
+    pdf_path.write_bytes(pdf_bytes)
+
+    # 5) （可選）把簡譜文字存成 .txt 一份，方便你 debug / 查看
+    txt_path = out_dir / f"{midi_path.stem}.jianpu.txt"
+    try:
+        txt_path.write_text(text_output, encoding="utf-8")
+    except Exception:
+        pass
+
+    return {
+        "text_output": text_output,
+        "pdf_path": str(pdf_path),
+    }
+
 
 
 # ====== 簡單 CLI，用來單機測試 ======
 if __name__ == "__main__":
-    import sys
-    from tkinter import Tk, filedialog
+    
 
-    # 如果有給參數：python MIDI_to_notation.py foo.mid
-    if len(sys.argv) > 1:
-        midi_path = sys.argv[1]
-    else:
-        # 1) 用對話框選檔
-        root = Tk()
-        root.withdraw()  # 不要顯示主視窗
-        midi_path = filedialog.askopenfilename(
-            title="選擇 MIDI 檔案",
-            filetypes=[("MIDI files", "*.mid *.midi")]
-        )
-        root.destroy()
+    root = Tk()
+    root.withdraw()
+    midi_path = filedialog.askopenfilename(
+        title="選擇 MIDI 檔案",
+        filetypes=[("MIDI files", "*.mid *.midi")]
+    )
+    root.destroy()
 
     if not midi_path:
         print("❌ 未選取檔案。")
@@ -185,12 +261,19 @@ if __name__ == "__main__":
 
     print(f"✅ 載入檔案：{os.path.basename(midi_path)}")
 
-    # 2) 產生簡譜 PDF
     pdf_bytes = midi_to_jianpu_pdf_bytes(midi_path)
 
-    # 輸出在「同一個資料夾」，檔名改成 .jianpu.pdf
-    out_path = Path(midi_path).with_suffix(".jianpu.pdf")
+    midi_path = Path(midi_path)
+
+    # 建立 output_YYYY-MM-DD_HHMM 資料夾（在 MIDI 同一層）
+    ts = datetime.now().strftime("%Y-%m-%d_%H%M")
+    out_dir = midi_path.parent / f"output\output_{ts}"
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    # PDF 檔名用 原 MIDI 檔名 + .jianpu.pdf
+    out_path = out_dir / (midi_path.stem + ".jianpu.pdf")
     out_path.write_bytes(pdf_bytes)
 
     print(f"🎼 已輸出: {out_path}")
+
 
