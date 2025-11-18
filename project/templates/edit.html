@@ -54,7 +54,7 @@
 </div>
 
 <script>
-  const cfgEl = document.getElementById('cfg');
+const cfgEl = document.getElementById('cfg');
   const UNITS_PER_QUARTER = parseInt(cfgEl.dataset.upq, 10);
   const BPM = parseFloat(cfgEl.dataset.bpm || '80');
   const NUM = parseInt(cfgEl.dataset.num || '4', 10);
@@ -62,14 +62,25 @@
   const INIT_NOTES = JSON.parse(document.getElementById('init-notes').textContent || '[]');
   document.getElementById('upqText').textContent = String(UNITS_PER_QUARTER);
 
+  // ===== 新增：左側鍵盤寬度、下方時間尺高度 =====
+  const KEY_W = 72;          // 左側「鍵盤＋音名」區寬度（px）
+  const TIME_RULER_H = 24;   // 下方時間尺高度（px）
+
   const R = {
-    lanes: 48, pitchMin: 48, laneH: 16, unitW: 12,
-    bars: 16, unitsPerBar: NUM * (UNITS_PER_QUARTER * (4 / DEN))
+    lanes: 48,        // 垂直有幾格（音高）
+    pitchMin: 48,     // 最低 MIDI pitch
+    laneH: 16,        // 每格高度
+    unitW: 12,        // 1「格」的寬度
+    bars: 16,
+    unitsPerBar: NUM * (UNITS_PER_QUARTER * (4 / DEN))
   };
 
+  const GRID_H = R.laneH * R.lanes;
+
   const cvs = document.getElementById('roll');
-  cvs.width  = R.unitW * R.unitsPerBar * R.bars;
-  cvs.height = R.laneH * R.lanes;
+  // 實際 canvas 尺寸：左邊鍵盤寬度 + 捲軸寬度；高度再加時間尺
+  cvs.width  = KEY_W + R.unitW * R.unitsPerBar * R.bars;
+  cvs.height = GRID_H + TIME_RULER_H;
   const ctx = cvs.getContext('2d');
 
   // CSS 像素 → canvas 內部像素（修正座標偏移）
@@ -77,7 +88,7 @@
     const rect = cvs.getBoundingClientRect();
     const scaleX = cvs.width  / rect.width;
     const scaleY = cvs.height / rect.height;
-    return { x: (evt.clientX - rect.left) * scaleX, y: (evt.clientY - rect.top) * scaleY };
+    return { x: (evt.clientX - rect.left) * scaleX, y: (evt.clientX - rect.top) * scaleY };
   }
 
   let notes = INIT_NOTES.map(n => ({ pitch: n.pitch, start: n.start, end: n.end }));
@@ -87,64 +98,184 @@
   function updateCursor(){ cvs.style.cursor = modeAdd ? 'crosshair' : 'default'; }
   function pitchToLane(p){ return (R.pitchMin + R.lanes - 1) - p; }
   function laneToPitch(l){ return (R.pitchMin + R.lanes - 1) - l; }
-  function xToUnit(x){ return Math.max(0, Math.round(x / R.unitW)); }
-  function yToLane(y){ return Math.max(0, Math.min(R.lanes-1, Math.floor(y / R.laneH))); }
+
+  // x 轉成時間「格」──要扣掉左邊鍵盤寬度
+  function xToUnit(x){
+    const gx = x - KEY_W;
+    return Math.max(0, Math.round(gx / R.unitW));
+  }
+  // y 轉成第幾個 lane（不含下方時間尺）
+  function yToLane(y){
+    const gy = Math.max(0, Math.min(GRID_H - 1, y));
+    return Math.max(0, Math.min(R.lanes-1, Math.floor(gy / R.laneH)));
+  }
+
+  // 把 MIDI pitch 變成音名（Ex: 60 → C4）
+  function midiToName(p){
+    const names = ['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'];
+    const name = names[p % 12] || '?';
+    const octave = Math.floor(p / 12) - 1;
+    return name + octave;
+  }
 
   function draw(){
     ctx.clearRect(0,0,cvs.width,cvs.height);
+
+    // ===== 1. 背景格子（只從 KEY_W 開始畫，避免畫到鍵盤區）=====
     for(let l=0; l<R.lanes; l++){
       const pc = laneToPitch(l) % 12;
-      ctx.fillStyle = (pc===1||pc===3||pc===6||pc===8||pc===10) ? '#f2f2f6' : '#f9f9fb';
-      ctx.fillRect(0, l*R.laneH, cvs.width, R.laneH);
+      const isBlack = (pc===1||pc===3||pc===6||pc===8||pc===10);
+
+      // 右側捲軸背景（淡色條紋）
+      ctx.fillStyle = isBlack ? '#f2f2f6' : '#f9f9fb';
+      ctx.fillRect(KEY_W, l*R.laneH, cvs.width-KEY_W, R.laneH);
+
+      // 左邊鍵盤區
+      ctx.fillStyle = isBlack ? '#555' : '#fdfdfd';
+      ctx.fillRect(0, l*R.laneH, KEY_W, R.laneH-1);
+      ctx.strokeStyle = '#aaa';
+      ctx.strokeRect(0, l*R.laneH, KEY_W, R.laneH-1);
+
+      // 音名文字
+      ctx.fillStyle = isBlack ? '#fff' : '#222';
+      ctx.font = 'bold 13px "Segoe UI", system-ui, -apple-system';
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(
+        midiToName(laneToPitch(l)),
+        6,                               // 往右縮一點，避免貼邊
+        l*R.laneH + R.laneH/2
+      );
     }
+
+    // 垂直時間格線（只畫在捲軸區）
     const totalUnits = R.unitsPerBar * R.bars;
     for(let u=0; u<=totalUnits; u++){
+      const x = KEY_W + u * R.unitW;
       ctx.beginPath();
-      ctx.moveTo(u*R.unitW, 0); ctx.lineTo(u*R.unitW, cvs.height);
-      ctx.strokeStyle = (u % R.unitsPerBar === 0) ? '#bbb' : (u % UNITS_PER_QUARTER === 0 ? '#ddd' : '#eee');
-      ctx.lineWidth = (u % R.unitsPerBar === 0) ? 1.2 : 1; ctx.stroke();
+      ctx.moveTo(x, 0);
+      ctx.lineTo(x, GRID_H);
+      ctx.strokeStyle = (u % R.unitsPerBar === 0) ? '#bbb'
+                      : (u % UNITS_PER_QUARTER === 0 ? '#ddd' : '#eee');
+      ctx.lineWidth = (u % R.unitsPerBar === 0) ? 1.2 : 1;
+      ctx.stroke();
     }
+
+    // ===== 2. 畫音符 =====
     notes.forEach(n=>{
-      const x=n.start*R.unitW, w=Math.max(1,(n.end-n.start)*R.unitW);
-      const y=pitchToLane(n.pitch)*R.laneH+2, h=R.laneH-4;
-      ctx.fillStyle='#0b79d0'; ctx.fillRect(x,y,w,h);
-      ctx.fillStyle='#084d80'; ctx.fillRect(x,y,4,h); ctx.fillRect(x+w-4,y,4,h);
+      const x = KEY_W + n.start*R.unitW;
+      const w = Math.max(1,(n.end-n.start)*R.unitW);
+      const y = pitchToLane(n.pitch)*R.laneH+2;
+      const h = R.laneH-4;
+      ctx.fillStyle='#0b79d0';
+      ctx.fillRect(x,y,w,h);
+      ctx.fillStyle='#084d80';
+      ctx.fillRect(x,y,4,h);
+      ctx.fillRect(x+w-4,y,4,h);
     });
-    if(modeAdd){ ctx.fillStyle='rgba(11,121,208,.08)'; ctx.fillRect(0,0,cvs.width,cvs.height); }
+
+    // 新增模式的淡藍遮罩
+    if(modeAdd){
+      ctx.fillStyle='rgba(11,121,208,.08)';
+      ctx.fillRect(KEY_W,0,cvs.width-KEY_W,GRID_H);
+    }
+
+    // ===== 3. 下方時間尺（秒）=====
+    const beatSec = 60 / BPM;           // 一拍幾秒
+    const beatUnits = UNITS_PER_QUARTER;
+    const beatsTotal = Math.floor(totalUnits / beatUnits);
+    const rulerTop = GRID_H;
+
+    // 背景
+    ctx.fillStyle = '#f0f0f0';
+    ctx.fillRect(0, rulerTop, cvs.width, TIME_RULER_H);
+    ctx.strokeStyle = '#ccc';
+    ctx.beginPath();
+    ctx.moveTo(0, rulerTop + 0.5);
+    ctx.lineTo(cvs.width, rulerTop + 0.5);
+    ctx.stroke();
+
+    ctx.font = '10px system-ui';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'top';
+
+    for(let b=0; b<=beatsTotal; b++){
+      const x = KEY_W + b * beatUnits * R.unitW;
+      const tSec = b * beatSec;
+      let label = tSec.toFixed(2).replace(/\.00$/,'').replace(/0$/,''); // 去掉多餘 0
+
+      // 小刻度線
+      ctx.strokeStyle = (b % NUM === 0) ? '#666' : '#999';
+      ctx.beginPath();
+      ctx.moveTo(x, rulerTop);
+      ctx.lineTo(x, rulerTop + 6);
+      ctx.stroke();
+
+      // 為了不要太擠，這裡每 2 拍顯示一次文字
+      if(b % 2 === 0){
+        ctx.fillStyle = '#333';
+        ctx.fillText(label, x, rulerTop + 8);
+      }
+    }
   }
 
   // 命中測試（加 3px 緩衝，較好點）
   function hitTest(x, y, pad=3){
     for(let i=notes.length-1;i>=0;i--){
-      const n=notes[i], bx1=n.start*R.unitW, bx2=n.end*R.unitW;
-      const y1=pitchToLane(n.pitch)*R.laneH+2, y2=y1+(R.laneH-4);
+      const n=notes[i];
+      const bx1 = KEY_W + n.start*R.unitW;
+      const bx2 = KEY_W + n.end*R.unitW;
+      const y1 = pitchToLane(n.pitch)*R.laneH+2;
+      const y2 = y1+(R.laneH-4);
       if(x>=bx1-pad && x<=bx2+pad && y>=y1-pad && y<=y2+pad){
         const edge=(x-bx1<6)?'left':((bx2-x<6)?'right':null);
         return {idx:i, edge};
       }
-    } return null;
+    }
+    return null;
   }
 
   cvs.addEventListener('mousedown', e=>{
-    const {x,y}=getCanvasXY(e); const hit=hitTest(x,y);
+    const {x,y}=getCanvasXY(e);
+    const hit=hitTest(x,y);
+    // y 超出音高區（到時間尺）就不做事
+    if(y >= GRID_H) return;
+
     if(modeAdd && !hit){
-      const lane=yToLane(y); notes.push({pitch:laneToPitch(lane), start:xToUnit(x), end:xToUnit(x)+UNITS_PER_QUARTER});
+      const lane=yToLane(y);
+      notes.push({
+        pitch: laneToPitch(lane),
+        start: xToUnit(x),
+        end:   xToUnit(x)+UNITS_PER_QUARTER
+      });
       draw(); return;
     }
     if(hit){
       const n=notes[hit.idx];
-      dragging={idx:hit.idx, edge:hit.edge, offU:xToUnit(x)-n.start, offLane:yToLane(y)-pitchToLane(n.pitch)};
+      dragging={
+        idx:hit.idx,
+        edge:hit.edge,
+        offU:xToUnit(x)-n.start,
+        offLane:yToLane(y)-pitchToLane(n.pitch)
+      };
     }
   });
 
   window.addEventListener('mousemove', e=>{
     if(!dragging) return;
-    const {x,y}=getCanvasXY(e); const u=xToUnit(x), lane=yToLane(y);
+    const {x,y}=getCanvasXY(e);
+    const u=xToUnit(x);
+    const lane=yToLane(y);
     const n=notes[dragging.idx];
-    if(dragging.edge==='left'){ n.start=Math.min(n.end-1,u); }
-    else if(dragging.edge==='right'){ n.end=Math.max(n.start+1,u); }
-    else{
-      const dur=n.end-n.start; n.start=Math.max(0,u-dragging.offU); n.end=n.start+dur;
+
+    if(dragging.edge==='left'){
+      n.start=Math.min(n.end-1,u);
+    }else if(dragging.edge==='right'){
+      n.end=Math.max(n.start+1,u);
+    }else{
+      const dur=n.end-n.start;
+      n.start=Math.max(0,u-dragging.offU);
+      n.end=n.start+dur;
       const newLane=pitchToLane(n.pitch)+(lane-(pitchToLane(n.pitch)+dragging.offLane));
       n.pitch=laneToPitch(Math.max(0,Math.min(R.lanes-1,newLane)));
     }
@@ -153,12 +284,22 @@
 
   window.addEventListener('mouseup', ()=>{ dragging=null; });
 
-  // 點到音符就刪；沒命中且在新增模式才新增（保護手感）
+  // 點到音符就刪；沒命中且在新增模式才新增
   cvs.addEventListener('click', e=>{
-    const {x,y}=getCanvasXY(e); const hit=hitTest(x,y);
-    if(hit){ notes.splice(hit.idx,1); draw(); return; }
+    const {x,y}=getCanvasXY(e);
+    if(y >= GRID_H) return;
+    const hit=hitTest(x,y);
+    if(hit){
+      notes.splice(hit.idx,1);
+      draw(); return;
+    }
     if(modeAdd){
-      const lane=yToLane(y); notes.push({pitch:laneToPitch(lane), start:xToUnit(x), end:xToUnit(x)+UNITS_PER_QUARTER});
+      const lane=yToLane(y);
+      notes.push({
+        pitch:laneToPitch(lane),
+        start:xToUnit(x),
+        end:xToUnit(x)+UNITS_PER_QUARTER
+      });
       draw();
     }
   });
@@ -166,23 +307,31 @@
   // 右鍵刪除
   cvs.addEventListener('contextmenu', e=>{
     e.preventDefault();
-    const {x,y}=getCanvasXY(e); const hit=hitTest(x,y);
+    const {x,y}=getCanvasXY(e);
+    const hit=hitTest(x,y);
     if(hit){ notes.splice(hit.idx,1); draw(); }
   });
 
   // 空白鍵切換新增模式 + 游標提示
   window.addEventListener('keydown', e=>{
-    if(e.code==='Space'){ e.preventDefault(); modeAdd=!modeAdd; updateCursor(); draw(); }
+    if(e.code==='Space'){
+      e.preventDefault();
+      modeAdd=!modeAdd;
+      updateCursor();
+      draw();
+    }
   });
 
   // 匯出
   document.getElementById('exportBtn').addEventListener('click', async ()=>{
     notes = notes.filter(n => n.end > n.start);
     const res = await fetch('/save-midi', {
-      method:'POST', headers:{'Content-Type':'application/json'},
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
       body: JSON.stringify({ notes, bpm:BPM, numerator:NUM, denominator:DEN })
     });
-    const html = await res.text(); document.open(); document.write(html); document.close();
+    const html = await res.text();
+    document.open(); document.write(html); document.close();
   });
 
   updateCursor();
