@@ -21,6 +21,7 @@ Pipeline:
 """
 
 import os
+import sys, shutil
 import subprocess
 import tempfile
 from io import BytesIO
@@ -51,6 +52,27 @@ LILYPOND_CMD = os.getenv("LILYPOND_CMD", r"C:\lilypond-2.24.4\bin\lilypond.exe")
 
 
 # ====== 小工具：包一層 subprocess.run，順便丟出錯誤訊息 ======
+
+def _jianpu_cmd():
+    """
+    取得可執行 jianpu-ly 的命令（list 形式）。
+    優先序：
+      1. 環境變數 JIANPU_LY_CMD（可填完整路徑或指令名）
+      2. PATH 中的 'jianpu-ly'
+      3. 目前 Python 的模組執行：python -m jianpu_ly
+    """
+    env_cmd = os.getenv("JIANPU_LY_CMD")
+    if env_cmd:
+        # 允許填「一整串命令」，也允許只有路徑
+        # 若你想更嚴謹可用 shlex.split，這裡簡化處理
+        return [env_cmd]
+
+    which = shutil.which("jianpu-ly")
+    if which:
+        return [which]
+
+    # 萬用保底：用當前解譯器跑模組
+    return [sys.executable, "-m", "jianpu_ly"]
 
 def _run(cmd, **kwargs):
     """
@@ -115,15 +137,12 @@ def musicxml_to_jianpu_text(xml_path: str, txt_path: str) -> None:
 
 def jianpu_text_to_ly(txt_path: str, ly_path: str) -> None:
     """用 jianpu-ly 把簡譜文字轉成 LilyPond 檔。"""
-    cmd = [JIANPU_LY_CMD, txt_path]
-
-    result = _run(cmd)  # stdout 是 bytes
-
+    cmd = _jianpu_cmd() + [txt_path]  # ← 不再寫死路徑
+    result = _run(cmd)                 # 你先前寫的 _run()（回傳 stdout bytes）
     try:
         ly_text = result.stdout.decode("utf-8")
     except Exception:
         ly_text = result.stdout.decode("cp950", errors="ignore")
-
     with open(ly_path, "w", encoding="utf-8") as f:
         f.write(ly_text)
 
