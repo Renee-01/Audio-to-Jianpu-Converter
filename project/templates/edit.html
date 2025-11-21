@@ -1,18 +1,31 @@
+
 <!DOCTYPE html>
 <html lang="zh-Hant">
 <head>
   <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>編輯單音旋律</title>
   <style>
+    :root{ --shadow: 0 6px 16px rgba(0,0,0,.08); }
+    *{box-sizing:border-box}
     body{font-family:ui-sans-serif,system-ui,"Segoe UI","Noto Sans TC",Arial;margin:0;background:#f7f7f7;}
     header{display:flex;justify-content:space-between;align-items:center;padding:12px 16px;background:#222;color:#fff;}
     .meta{font-size:14px;opacity:.85}
-    .wrap{display:flex;gap:12px;padding:12px;}
-    .panel{background:#fff;border-radius:10px;box-shadow:0 6px 16px rgba(0,0,0,.08)}
-    #roll{width:1000px;height:420px;cursor:default;display:block;border-radius:10px;}
-    .side{padding:12px 16px}
+
+    .wrap{display:grid;grid-template-columns:1fr 360px;gap:12px;padding:12px;}
+    .side{background:#fff;border-radius:10px;box-shadow:var(--shadow);padding:12px 16px}
+
+    .roll-wrap{display:flex;align-items:flex-start;background:#fff;border-radius:10px;box-shadow:var(--shadow);overflow:hidden}
+    .keys-wrap{position:sticky;left:0;z-index:2;box-shadow:inset -1px 0 0 #cfcfd4;background:#fff}
+    .scroll{overflow:auto;flex:1;}
+
+    #keys,#roll{display:block}
+
+    .toolbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
     .btn{appearance:none;border:0;border-radius:8px;padding:10px 14px;background:#0b79d0;color:#fff;font-weight:600;cursor:pointer}
-    .row{display:flex;gap:10px;align-items:center;margin:6px 0}
+    .badge{padding:4px 8px;border-radius:6px;background:#eef2f7;color:#334;text-align:center;font-weight:600;font-size:12px}
+    input[type="range"]{width:160px}
+
     .hint{font-size:13px;color:#555}
     ul{margin:6px 0 0 16px;padding:0}
   </style>
@@ -23,12 +36,13 @@
     <div><strong>單音鋼琴捲軸編輯器</strong></div>
     <div class="meta">檔案：{{ filename }}　BPM: {{ bpm }}　拍號：{{ numerator }}/{{ denominator }}</div>
   </div>
-  <div class="row">
+  <div class="toolbar">
+    <span class="badge">縮放：<span id="zoomLabel">100%</span></span>
+    <input id="zoom" type="range" min="80" max="220" step="5" value="120" />
     <button id="exportBtn" class="btn">輸出成單音 MIDI → 產生簡譜</button>
   </div>
 </header>
 
-<!-- 這個 cfg、init-notes、canvas 都是必要的 DOM -->
 <div id="cfg"
      data-bpm="{{ bpm }}"
      data-num="{{ numerator }}"
@@ -38,14 +52,22 @@
 <script id="init-notes" type="application/json">{{ notes_json|safe }}</script>
 
 <div class="wrap">
-  <canvas id="roll" class="panel"></canvas>
-  <div class="panel side">
+  <div class="roll-wrap">
+    <div class="keys-wrap">
+      <canvas id="keys"></canvas>
+    </div>
+    <div class="scroll">
+      <canvas id="roll"></canvas>
+    </div>
+  </div>
+
+  <div class="side">
     <div class="row"><strong>操作說明</strong></div>
     <div class="hint">
       <ul>
         <li>拖曳音符移動；拖拉邊緣改長度</li>
-        <li>空白鍵切換「新增模式」；點擊格子新增音符</li>
-        <li>按一下音符刪除（右鍵也可刪除）</li>
+        <li>空白鍵切換「新增模式」；點一下空白格新增音符</li>
+        <li>點一下音符刪除（右鍵也可刪除）</li>
         <li>所有時間單位＝「格」；四分＝<span id="upqText"></span> 格</li>
       </ul>
       <p>※ 傳回後端時會自動單音化（遇重疊即切斷前一音）。</p>
@@ -55,287 +77,292 @@
 
 <script>
 const cfgEl = document.getElementById('cfg');
-  const UNITS_PER_QUARTER = parseInt(cfgEl.dataset.upq, 10);
-  const BPM = parseFloat(cfgEl.dataset.bpm || '80');
-  const NUM = parseInt(cfgEl.dataset.num || '4', 10);
-  const DEN = parseInt(cfgEl.dataset.den || '4', 10);
-  const INIT_NOTES = JSON.parse(document.getElementById('init-notes').textContent || '[]');
-  document.getElementById('upqText').textContent = String(UNITS_PER_QUARTER);
+const UNITS_PER_QUARTER = parseInt(cfgEl.dataset.upq, 10);
+const BPM = parseFloat(cfgEl.dataset.bpm || '80');
+const NUM = parseInt(cfgEl.dataset.num || '4', 10);
+const DEN = parseInt(cfgEl.dataset.den || '4', 10);
+const INIT_NOTES = JSON.parse(document.getElementById('init-notes').textContent || '[]');
+document.getElementById('upqText').textContent = String(UNITS_PER_QUARTER);
 
-  // ===== 新增：左側鍵盤寬度、下方時間尺高度 =====
-  const KEY_W = 72;          // 左側「鍵盤＋音名」區寬度（px）
-  const TIME_RULER_H = 24;   // 下方時間尺高度（px）
+// ===== 縮放 =====
+let SCALE = 1.2;
+const zoomInput = document.getElementById('zoom');
+const zoomLabel = document.getElementById('zoomLabel');
+function updateZoomLabel(){ zoomLabel.textContent = Math.round(SCALE*100)+'%'; }
+zoomInput.addEventListener('input', ()=>{
+  SCALE = parseInt(zoomInput.value, 10) / 100;
+  updateZoomLabel();
+  rebuildSizeAndRedraw();
+});
+updateZoomLabel();
 
-  const R = {
-    lanes: 48,        // 垂直有幾格（音高）
-    pitchMin: 48,     // 最低 MIDI pitch
-    laneH: 16,        // 每格高度
-    unitW: 12,        // 1「格」的寬度
-    bars: 16,
-    unitsPerBar: NUM * (UNITS_PER_QUARTER * (4 / DEN))
-  };
+// ===== 幾何參數 =====
+const R = {
+  lanes: 48,
+  pitchMin: 48,
+  laneH: 16,
+  unitW: 12,
+  bars: 16,
+  unitsPerBar: NUM * (UNITS_PER_QUARTER * (4 / DEN))
+};
+let KEY_W = 120;
+let TIME_RULER_H = 40;
 
-  const GRID_H = R.laneH * R.lanes;
+const GRID_H = ()=> R.laneH * R.lanes;
+const totalUnits = ()=> R.unitsPerBar * R.bars;
 
-  const cvs = document.getElementById('roll');
-  // 實際 canvas 尺寸：左邊鍵盤寬度 + 捲軸寬度；高度再加時間尺
-  cvs.width  = KEY_W + R.unitW * R.unitsPerBar * R.bars;
-  cvs.height = GRID_H + TIME_RULER_H;
-  const ctx = cvs.getContext('2d');
+// ===== 畫布 =====
+const keysCvs = document.getElementById('keys');
+const rollCvs = document.getElementById('roll');
+const kctx = keysCvs.getContext('2d', {alpha:false});
+const rctx = rollCvs.getContext('2d', {alpha:false});
+function setCanvasCSSSize(el){ el.style.width = el.width + 'px'; el.style.height = el.height + 'px'; }
 
-  // CSS 像素 → canvas 內部像素（修正座標偏移）
-  function getCanvasXY(evt){
-    const rect = cvs.getBoundingClientRect();
-    const scaleX = cvs.width  / rect.width;
-    const scaleY = cvs.height / rect.height;
-    return { x: (evt.clientX - rect.left) * scaleX, y: (evt.clientX - rect.top) * scaleY };
+function rebuildSizeAndRedraw(){
+  R.laneH = Math.max(12, Math.round(16 * SCALE));
+  R.unitW = Math.max(8,  Math.round(12 * SCALE));
+  KEY_W = Math.max(100, Math.round(120 * SCALE));
+  TIME_RULER_H = Math.max(28, Math.round(40 * SCALE));
+
+  keysCvs.width  = KEY_W;
+  keysCvs.height = GRID_H() + TIME_RULER_H;
+  rollCvs.width  = R.unitW * totalUnits();
+  rollCvs.height = GRID_H() + TIME_RULER_H;
+  setCanvasCSSSize(keysCvs);
+  setCanvasCSSSize(rollCvs);
+  drawAll();
+}
+
+// ===== 狀態 =====
+let notes = INIT_NOTES.map(n => ({ pitch: n.pitch, start: n.start, end: n.end }));
+let modeAdd = false;
+let dragging = null;
+let didDrag = false;
+let suppressNextClick = false;
+
+// ===== 座標/換算 =====
+function updateCursor(){ rollCvs.style.cursor = modeAdd ? 'crosshair' : 'default'; }
+function pitchToLane(p){ return (R.pitchMin + R.lanes - 1) - p; }
+function laneToPitch(l){ return (R.pitchMin + R.lanes - 1) - l; }
+
+function getCanvasXY(canvas, evt){
+  const rect = canvas.getBoundingClientRect();
+  const scaleX = canvas.width  / rect.width;
+  const scaleY = canvas.height / rect.height;
+  return { x: (evt.clientX - rect.left) * scaleX, y: (evt.clientY - rect.top) * scaleY };
+}
+function xToUnit(x){ return Math.max(0, Math.round(x / R.unitW)); }
+function yToLane(y){
+  const gy = Math.max(0, Math.min(GRID_H() - 1, y));
+  return Math.max(0, Math.min(R.lanes-1, Math.floor(gy / R.laneH)));
+}
+function midiToName(p){
+  const names = ['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'];
+  const name = names[p % 12] || '?';
+  const octave = Math.floor(p / 12) - 1;
+  return name + octave;
+}
+
+// ===== 繪圖 =====
+function drawKeys(){
+  kctx.clearRect(0,0,keysCvs.width,keysCvs.height);
+  for(let l=0; l<R.lanes; l++){
+    const pc = laneToPitch(l) % 12;
+    const isBlack = (pc===1||pc===3||pc===6||pc===8||pc===10);
+
+    kctx.fillStyle = isBlack ? '#555' : '#fdfdfd';
+    kctx.fillRect(0, l*R.laneH, KEY_W, R.laneH-1);
+    kctx.strokeStyle = '#aaa';
+    kctx.strokeRect(0, l*R.laneH, KEY_W, R.laneH-1);
+
+    kctx.fillStyle = isBlack ? '#fff' : '#222';
+    kctx.font = 'bold ' + Math.round(15*SCALE) + 'px "Segoe UI", system-ui, -apple-system';
+    kctx.textAlign = 'left';
+    kctx.textBaseline = 'middle';
+    kctx.fillText(midiToName(laneToPitch(l)), 6, l*R.laneH + R.laneH/2);
+  }
+  const rulerTop = GRID_H();
+  kctx.fillStyle = '#f0f0f0';
+  kctx.fillRect(0, rulerTop, KEY_W, TIME_RULER_H);
+}
+
+function drawRoll(){
+  rctx.clearRect(0,0,rollCvs.width,rollCvs.height);
+
+  for(let l=0; l<R.lanes; l++){
+    const pc = laneToPitch(l) % 12;
+    const isBlack = (pc===1||pc===3||pc===6||pc===8||pc===10);
+    rctx.fillStyle = isBlack ? '#f2f2f6' : '#f9f9fb';
+    rctx.fillRect(0, l*R.laneH, rollCvs.width, R.laneH);
   }
 
-  let notes = INIT_NOTES.map(n => ({ pitch: n.pitch, start: n.start, end: n.end }));
-  let modeAdd = false;
-  let dragging = null;
-
-  function updateCursor(){ cvs.style.cursor = modeAdd ? 'crosshair' : 'default'; }
-  function pitchToLane(p){ return (R.pitchMin + R.lanes - 1) - p; }
-  function laneToPitch(l){ return (R.pitchMin + R.lanes - 1) - l; }
-
-  // x 轉成時間「格」──要扣掉左邊鍵盤寬度
-  function xToUnit(x){
-    const gx = x - KEY_W;
-    return Math.max(0, Math.round(gx / R.unitW));
-  }
-  // y 轉成第幾個 lane（不含下方時間尺）
-  function yToLane(y){
-    const gy = Math.max(0, Math.min(GRID_H - 1, y));
-    return Math.max(0, Math.min(R.lanes-1, Math.floor(gy / R.laneH)));
+  const totalU = totalUnits();
+  for(let u=0; u<=totalU; u++){
+    const x = u * R.unitW;
+    rctx.beginPath();
+    rctx.moveTo(x, 0);
+    rctx.lineTo(x, GRID_H());
+    rctx.strokeStyle = (u % R.unitsPerBar === 0) ? '#bbb'
+                    : (u % UNITS_PER_QUARTER === 0 ? '#ddd' : '#eee');
+    rctx.lineWidth = (u % R.unitsPerBar === 0) ? 1.2 : 1;
+    rctx.stroke();
   }
 
-  // 把 MIDI pitch 變成音名（Ex: 60 → C4）
-  function midiToName(p){
-    const names = ['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'];
-    const name = names[p % 12] || '?';
-    const octave = Math.floor(p / 12) - 1;
-    return name + octave;
-  }
-
-  function draw(){
-    ctx.clearRect(0,0,cvs.width,cvs.height);
-
-    // ===== 1. 背景格子（只從 KEY_W 開始畫，避免畫到鍵盤區）=====
-    for(let l=0; l<R.lanes; l++){
-      const pc = laneToPitch(l) % 12;
-      const isBlack = (pc===1||pc===3||pc===6||pc===8||pc===10);
-
-      // 右側捲軸背景（淡色條紋）
-      ctx.fillStyle = isBlack ? '#f2f2f6' : '#f9f9fb';
-      ctx.fillRect(KEY_W, l*R.laneH, cvs.width-KEY_W, R.laneH);
-
-      // 左邊鍵盤區
-      ctx.fillStyle = isBlack ? '#555' : '#fdfdfd';
-      ctx.fillRect(0, l*R.laneH, KEY_W, R.laneH-1);
-      ctx.strokeStyle = '#aaa';
-      ctx.strokeRect(0, l*R.laneH, KEY_W, R.laneH-1);
-
-      // 音名文字
-      ctx.fillStyle = isBlack ? '#fff' : '#222';
-      ctx.font = 'bold 13px "Segoe UI", system-ui, -apple-system';
-      ctx.textAlign = 'left';
-      ctx.textBaseline = 'middle';
-      ctx.fillText(
-        midiToName(laneToPitch(l)),
-        6,                               // 往右縮一點，避免貼邊
-        l*R.laneH + R.laneH/2
-      );
-    }
-
-    // 垂直時間格線（只畫在捲軸區）
-    const totalUnits = R.unitsPerBar * R.bars;
-    for(let u=0; u<=totalUnits; u++){
-      const x = KEY_W + u * R.unitW;
-      ctx.beginPath();
-      ctx.moveTo(x, 0);
-      ctx.lineTo(x, GRID_H);
-      ctx.strokeStyle = (u % R.unitsPerBar === 0) ? '#bbb'
-                      : (u % UNITS_PER_QUARTER === 0 ? '#ddd' : '#eee');
-      ctx.lineWidth = (u % R.unitsPerBar === 0) ? 1.2 : 1;
-      ctx.stroke();
-    }
-
-    // ===== 2. 畫音符 =====
-    notes.forEach(n=>{
-      const x = KEY_W + n.start*R.unitW;
-      const w = Math.max(1,(n.end-n.start)*R.unitW);
-      const y = pitchToLane(n.pitch)*R.laneH+2;
-      const h = R.laneH-4;
-      ctx.fillStyle='#0b79d0';
-      ctx.fillRect(x,y,w,h);
-      ctx.fillStyle='#084d80';
-      ctx.fillRect(x,y,4,h);
-      ctx.fillRect(x+w-4,y,4,h);
-    });
-
-    // 新增模式的淡藍遮罩
-    if(modeAdd){
-      ctx.fillStyle='rgba(11,121,208,.08)';
-      ctx.fillRect(KEY_W,0,cvs.width-KEY_W,GRID_H);
-    }
-
-    // ===== 3. 下方時間尺（秒）=====
-    const beatSec = 60 / BPM;           // 一拍幾秒
-    const beatUnits = UNITS_PER_QUARTER;
-    const beatsTotal = Math.floor(totalUnits / beatUnits);
-    const rulerTop = GRID_H;
-
-    // 背景
-    ctx.fillStyle = '#f0f0f0';
-    ctx.fillRect(0, rulerTop, cvs.width, TIME_RULER_H);
-    ctx.strokeStyle = '#ccc';
-    ctx.beginPath();
-    ctx.moveTo(0, rulerTop + 0.5);
-    ctx.lineTo(cvs.width, rulerTop + 0.5);
-    ctx.stroke();
-
-    ctx.font = '10px system-ui';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'top';
-
-    for(let b=0; b<=beatsTotal; b++){
-      const x = KEY_W + b * beatUnits * R.unitW;
-      const tSec = b * beatSec;
-      let label = tSec.toFixed(2).replace(/\.00$/,'').replace(/0$/,''); // 去掉多餘 0
-
-      // 小刻度線
-      ctx.strokeStyle = (b % NUM === 0) ? '#666' : '#999';
-      ctx.beginPath();
-      ctx.moveTo(x, rulerTop);
-      ctx.lineTo(x, rulerTop + 6);
-      ctx.stroke();
-
-      // 為了不要太擠，這裡每 2 拍顯示一次文字
-      if(b % 2 === 0){
-        ctx.fillStyle = '#333';
-        ctx.fillText(label, x, rulerTop + 8);
-      }
-    }
-  }
-
-  // 命中測試（加 3px 緩衝，較好點）
-  function hitTest(x, y, pad=3){
-    for(let i=notes.length-1;i>=0;i--){
-      const n=notes[i];
-      const bx1 = KEY_W + n.start*R.unitW;
-      const bx2 = KEY_W + n.end*R.unitW;
-      const y1 = pitchToLane(n.pitch)*R.laneH+2;
-      const y2 = y1+(R.laneH-4);
-      if(x>=bx1-pad && x<=bx2+pad && y>=y1-pad && y<=y2+pad){
-        const edge=(x-bx1<6)?'left':((bx2-x<6)?'right':null);
-        return {idx:i, edge};
-      }
-    }
-    return null;
-  }
-
-  cvs.addEventListener('mousedown', e=>{
-    const {x,y}=getCanvasXY(e);
-    const hit=hitTest(x,y);
-    // y 超出音高區（到時間尺）就不做事
-    if(y >= GRID_H) return;
-
-    if(modeAdd && !hit){
-      const lane=yToLane(y);
-      notes.push({
-        pitch: laneToPitch(lane),
-        start: xToUnit(x),
-        end:   xToUnit(x)+UNITS_PER_QUARTER
-      });
-      draw(); return;
-    }
-    if(hit){
-      const n=notes[hit.idx];
-      dragging={
-        idx:hit.idx,
-        edge:hit.edge,
-        offU:xToUnit(x)-n.start,
-        offLane:yToLane(y)-pitchToLane(n.pitch)
-      };
-    }
+  notes.forEach(n=>{
+    const x = n.start*R.unitW;
+    const w = Math.max(1,(n.end-n.start)*R.unitW);
+    const y = pitchToLane(n.pitch)*R.laneH+2;
+    const h = R.laneH-4;
+    rctx.fillStyle='#0b79d0';
+    rctx.fillRect(x,y,w,h);
+    rctx.fillStyle='#084d80';
+    rctx.fillRect(x,y,4,h);
+    rctx.fillRect(x+w-4,y,4,h);
   });
 
-  window.addEventListener('mousemove', e=>{
-    if(!dragging) return;
-    const {x,y}=getCanvasXY(e);
-    const u=xToUnit(x);
+  const beatSec = 60 / BPM;
+  const beatUnits = UNITS_PER_QUARTER;
+  const beatsTotal = Math.floor(totalU / beatUnits);
+  const rulerTop = GRID_H();
+
+  rctx.fillStyle = '#f0f0f0';
+  rctx.fillRect(0, rulerTop, rollCvs.width, TIME_RULER_H);
+  rctx.strokeStyle = '#ccc';
+  rctx.beginPath();
+  rctx.moveTo(0, rulerTop + 0.5);
+  rctx.lineTo(rollCvs.width, rulerTop + 0.5);
+  rctx.stroke();
+
+  rctx.font = Math.round(12*SCALE) + 'px system-ui';
+  rctx.textAlign = 'center';
+  rctx.textBaseline = 'top';
+  for(let b=0; b<=beatsTotal; b++){
+    const x = b * beatUnits * R.unitW;
+    const tSec = b * beatSec;
+    let label = tSec.toFixed(2).replace(/\.00$/,'').replace(/0$/,'');
+    rctx.strokeStyle = (b % NUM === 0) ? '#666' : '#999';
+    rctx.beginPath();
+    rctx.moveTo(x, rulerTop);
+    rctx.lineTo(x, rulerTop + 6);
+    rctx.stroke();
+    if(b % 2 === 0){
+      rctx.fillStyle = '#333';
+      rctx.fillText(label, x, rulerTop + 8);
+    }
+  }
+}
+
+function drawAll(){ drawKeys(); drawRoll(); }
+
+// ===== 命中測試 =====
+function hitTest(x, y, pad=8){
+  for(let i=notes.length-1;i>=0;i--){
+    const n=notes[i];
+    const bx1 = n.start*R.unitW;
+    const bx2 = n.end*R.unitW;
+    const y1 = pitchToLane(n.pitch)*R.laneH+2;
+    const y2 = y1+(R.laneH-4);
+    if(x>=bx1-pad && x<=bx2+pad && y>=y1-pad && y<=y2+pad){
+      const edge=(x-bx1<8)?'left':((bx2-x<8)?'right':null);
+      return {idx:i, edge};
+    }
+  }
+  return null;
+}
+
+// ===== 互動 =====
+rollCvs.addEventListener('mousedown', e=>{
+  const {x,y}=getCanvasXY(rollCvs, e);
+  if(y >= GRID_H()) return;
+  const hit=hitTest(x,y);
+  didDrag = false;
+  suppressNextClick = false;
+
+  if(hit){
+    const n=notes[hit.idx];
+    dragging={
+      idx:hit.idx, edge:hit.edge,
+      startX:x, startY:y,
+      offU:xToUnit(x)-n.start,
+      offLane:yToLane(y)-pitchToLane(n.pitch)
+    };
+  }else{
+    dragging = null;
+  }
+});
+
+window.addEventListener('mousemove', e=>{
+  if(!dragging) return;
+  const {x,y}=getCanvasXY(rollCvs, e);
+  if(Math.abs(x-dragging.startX)>2 || Math.abs(y-dragging.startY)>2){ didDrag = true; }
+  const u=xToUnit(x);
+  const lane=yToLane(y);
+  const n=notes[dragging.idx];
+  if(!n) return;
+
+  if(dragging.edge==='left'){
+    n.start=Math.min(n.end-1,u);
+  }else if(dragging.edge==='right'){
+    n.end=Math.max(n.start+1,u);
+  }else{
+    const dur=n.end-n.start;
+    n.start=Math.max(0,u-dragging.offU);
+    n.end=n.start+dur;
+    const newLane=pitchToLane(n.pitch)+(lane-(pitchToLane(n.pitch)+dragging.offLane));
+    n.pitch=laneToPitch(Math.max(0,Math.min(R.lanes-1,newLane)));
+  }
+  drawRoll();
+});
+
+window.addEventListener('mouseup', ()=>{
+  if(dragging && didDrag){ suppressNextClick = true; }
+  dragging=null;
+});
+
+rollCvs.addEventListener('click', e=>{
+  if(suppressNextClick){ suppressNextClick=false; return; }
+  const {x,y}=getCanvasXY(rollCvs, e);
+  if(y >= GRID_H()) return;
+  const hit=hitTest(x,y);
+  if(hit){
+    notes.splice(hit.idx,1);
+    drawRoll(); return;
+  }
+  if(modeAdd){
     const lane=yToLane(y);
-    const n=notes[dragging.idx];
+    notes.push({ pitch:laneToPitch(lane), start:xToUnit(x), end:xToUnit(x)+UNITS_PER_QUARTER });
+    drawRoll();
+  }
+});
 
-    if(dragging.edge==='left'){
-      n.start=Math.min(n.end-1,u);
-    }else if(dragging.edge==='right'){
-      n.end=Math.max(n.start+1,u);
-    }else{
-      const dur=n.end-n.start;
-      n.start=Math.max(0,u-dragging.offU);
-      n.end=n.start+dur;
-      const newLane=pitchToLane(n.pitch)+(lane-(pitchToLane(n.pitch)+dragging.offLane));
-      n.pitch=laneToPitch(Math.max(0,Math.min(R.lanes-1,newLane)));
-    }
-    draw();
-  });
+rollCvs.addEventListener('contextmenu', e=>{
+  e.preventDefault();
+  const {x,y}=getCanvasXY(rollCvs, e);
+  const hit=hitTest(x,y);
+  if(hit){ notes.splice(hit.idx,1); drawRoll(); }
+});
 
-  window.addEventListener('mouseup', ()=>{ dragging=null; });
-
-  // 點到音符就刪；沒命中且在新增模式才新增
-  cvs.addEventListener('click', e=>{
-    const {x,y}=getCanvasXY(e);
-    if(y >= GRID_H) return;
-    const hit=hitTest(x,y);
-    if(hit){
-      notes.splice(hit.idx,1);
-      draw(); return;
-    }
-    if(modeAdd){
-      const lane=yToLane(y);
-      notes.push({
-        pitch:laneToPitch(lane),
-        start:xToUnit(x),
-        end:xToUnit(x)+UNITS_PER_QUARTER
-      });
-      draw();
-    }
-  });
-
-  // 右鍵刪除
-  cvs.addEventListener('contextmenu', e=>{
+window.addEventListener('keydown', e=>{
+  if(e.code==='Space'){
     e.preventDefault();
-    const {x,y}=getCanvasXY(e);
-    const hit=hitTest(x,y);
-    if(hit){ notes.splice(hit.idx,1); draw(); }
-  });
+    modeAdd=!modeAdd;
+    updateCursor();
+  }
+});
 
-  // 空白鍵切換新增模式 + 游標提示
-  window.addEventListener('keydown', e=>{
-    if(e.code==='Space'){
-      e.preventDefault();
-      modeAdd=!modeAdd;
-      updateCursor();
-      draw();
-    }
+document.getElementById('exportBtn').addEventListener('click', async ()=>{
+  notes = notes.filter(n => n.end > n.start);
+  const res = await fetch('/save-midi', {
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ notes, bpm:BPM, numerator:NUM, denominator:DEN })
   });
+  const html = await res.text();
+  document.open(); document.write(html); document.close();
+});
 
-  // 匯出
-  document.getElementById('exportBtn').addEventListener('click', async ()=>{
-    notes = notes.filter(n => n.end > n.start);
-    const res = await fetch('/save-midi', {
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({ notes, bpm:BPM, numerator:NUM, denominator:DEN })
-    });
-    const html = await res.text();
-    document.open(); document.write(html); document.close();
-  });
-
-  updateCursor();
-  draw();
+updateCursor();
+rebuildSizeAndRedraw();
 </script>
 </body>
 </html>
