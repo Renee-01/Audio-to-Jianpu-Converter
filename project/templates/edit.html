@@ -1,4 +1,3 @@
-
 <!DOCTYPE html>
 <html lang="zh-Hant">
 <head>
@@ -43,6 +42,9 @@
   </div>
 </header>
 
+<!-- 用來把原始檔名傳回後端 -->
+<div id="meta" data-filename="{{ filename }}"></div>
+
 <div id="cfg"
      data-bpm="{{ bpm }}"
      data-num="{{ numerator }}"
@@ -70,12 +72,13 @@
         <li>點一下音符刪除（右鍵也可刪除）</li>
         <li>所有時間單位＝「格」；四分＝<span id="upqText"></span> 格</li>
       </ul>
-      <p>※ 傳回後端時會自動單音化（遇重疊即切斷前一音）。</p>
+      <p>※ 傳回後端時會再轉成 MIDI 並產生簡譜 PDF。</p>
     </div>
   </div>
 </div>
 
 <script>
+// ===== 從 DOM 讀設定 =====
 const cfgEl = document.getElementById('cfg');
 const UNITS_PER_QUARTER = parseInt(cfgEl.dataset.upq, 10);
 const BPM = parseFloat(cfgEl.dataset.bpm || '80');
@@ -83,6 +86,10 @@ const NUM = parseInt(cfgEl.dataset.num || '4', 10);
 const DEN = parseInt(cfgEl.dataset.den || '4', 10);
 const INIT_NOTES = JSON.parse(document.getElementById('init-notes').textContent || '[]');
 document.getElementById('upqText').textContent = String(UNITS_PER_QUARTER);
+
+// 檔名：給 /save-midi 用來決定資料夾名稱
+const META = document.getElementById('meta');
+const SONG_NAME = META ? (META.dataset.filename || 'song') : 'song';
 
 // ===== 縮放 =====
 let SCALE = 1.2;
@@ -350,15 +357,24 @@ window.addEventListener('keydown', e=>{
   }
 });
 
+// ===== 送回後端，產生 MIDI + PDF（跳到 result.html）=====
 document.getElementById('exportBtn').addEventListener('click', async () => {
-  const body = JSON.stringify({ notes, bpm:BPM, numerator:NUM, denominator:DEN });
-  const res = await fetch('/save-midi', { method:'POST', headers:{'Content-Type':'application/json'}, body });
-  // 打開新分頁顯示 PDF
-  const blob = await res.blob();
-  const url = URL.createObjectURL(blob);
-  window.open(url, '_blank');
+  notes = notes.filter(n => n.end > n.start);
+  const payload = {
+    notes,
+    bpm: BPM,
+    numerator: NUM,
+    denominator: DEN,
+    filename: SONG_NAME,
+  };
+  const res = await fetch('/save-midi', {
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body: JSON.stringify(payload),
+  });
+  const html = await res.text();
+  document.open(); document.write(html); document.close();
 });
-
 
 updateCursor();
 rebuildSizeAndRedraw();

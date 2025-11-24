@@ -4,12 +4,55 @@
   <meta charset="UTF-8" />
   <title>轉換結果</title>
   <style>
-    body{font-family:ui-sans-serif,system-ui,"Segoe UI","Noto Sans TC",Arial;margin:0;background:#f7f7f7;}
-    header{display:flex;justify-content:space-between;align-items:center;padding:12px 16px;background:#222;color:#fff;}
-    main{max-width:980px;margin:16px auto;padding:0 16px;}
-    .card{background:#fff;border-radius:10px;box-shadow:0 6px 16px rgba(0,0,0,.08);padding:16px;margin-bottom:16px;}
-    .btn{display:inline-block;margin-right:8px;margin-top:8px;padding:10px 14px;border-radius:8px;background:#0b79d0;color:#fff;text-decoration:none;font-weight:600}
-    pre{white-space:pre-wrap;word-break:break-word;background:#f8f8f8;border-radius:8px;padding:12px;max-height:420px;overflow:auto}
+    body{
+      font-family:ui-sans-serif,system-ui,"Segoe UI","Noto Sans TC",Arial;
+      margin:0;
+      background:#f7f7f7;
+    }
+    header{
+      display:flex;
+      justify-content:space-between;
+      align-items:center;
+      padding:12px 16px;
+      background:#222;
+      color:#fff;
+    }
+    main{
+      max-width:980px;
+      margin:16px auto;
+      padding:0 16px;
+    }
+    .card{
+      background:#fff;
+      border-radius:10px;
+      box-shadow:0 6px 16px rgba(0,0,0,.08);
+      padding:16px;
+      margin-bottom:16px;
+    }
+    .btn{
+      display:inline-block;
+      margin-right:8px;
+      margin-top:8px;
+      padding:10px 14px;
+      border-radius:8px;
+      background:#0b79d0;
+      color:#fff;
+      text-decoration:none;
+      font-weight:600;
+    }
+    .pdf-wrapper{
+      width:100%;
+      height:650px;
+      border:1px solid #ccc;
+      border-radius:8px;
+      overflow:hidden;
+      margin-top:8px;
+    }
+    .pdf-wrapper iframe{
+      width:100%;
+      height:100%;
+      border:none;
+    }
   </style>
 </head>
 <body>
@@ -19,26 +62,24 @@
 </header>
 
 <main>
+
+  <!-- PDF 卡片 -->
   <div class="card">
-    <h3>下載檔案</h3>
+    <h3>PDF 樂譜</h3>
     <div>
-      {% if midi_rel %}
-        <a class="btn" href="{{ url_for('download_file', subpath=midi_rel) }}">下載 MIDI</a>
-      {% endif %}
       {% if pdf_rel %}
-        <a class="btn" href="{{ url_for('view_file', subpath=pdf_rel) }}" target="_blank">線上預覽 PDF</a>
+        <div class="pdf-wrapper">
+          <iframe src="{{ url_for('view_file', subpath=pdf_rel) }}"></iframe>
+        </div>
         <a class="btn" href="{{ url_for('download_file', subpath=pdf_rel) }}">下載 PDF</a>
       {% else %}
-        <p>⚠️ 目前沒有 PDF。常見原因是音符跨小節導致排版失敗；本程式已將音符切齊小節再試一次。如果仍無 PDF，請回編輯器稍微調整音長、或檢查產出的 <code>.ly</code>/<code>.txt</code> 檔案。</p>
+        <p>⚠️ 目前沒有 PDF。若一直失敗，可以回編輯器稍微調整音長、或檢查產出的 <code>.ly</code>/<code>.txt</code> 檔案。</p>
       {% endif %}
     </div>
   </div>
 
-  <div class="card">
-    <h3>簡譜（純文字）</h3>
-    <pre>{{ text_output }}</pre>
-  </div>
-
+  
+  <!-- 回首頁 -->
   <div class="card">
     <a class="btn" href="{{ url_for('index') }}">回首頁重新上傳</a>
   </div>
