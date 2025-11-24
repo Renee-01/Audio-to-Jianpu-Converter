@@ -350,16 +350,15 @@ window.addEventListener('keydown', e=>{
   }
 });
 
-document.getElementById('exportBtn').addEventListener('click', async ()=>{
-  notes = notes.filter(n => n.end > n.start);
-  const res = await fetch('/save-midi', {
-    method:'POST',
-    headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({ notes, bpm:BPM, numerator:NUM, denominator:DEN })
-  });
-  const html = await res.text();
-  document.open(); document.write(html); document.close();
+document.getElementById('exportBtn').addEventListener('click', async () => {
+  const body = JSON.stringify({ notes, bpm:BPM, numerator:NUM, denominator:DEN });
+  const res = await fetch('/save-midi', { method:'POST', headers:{'Content-Type':'application/json'}, body });
+  // 打開新分頁顯示 PDF
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  window.open(url, '_blank');
 });
+
 
 updateCursor();
 rebuildSizeAndRedraw();
