@@ -1,368 +1,368 @@
-
 <!DOCTYPE html>
 <html lang="zh-Hant">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>編輯單音旋律</title>
   <style>
-    :root{ --shadow: 0 6px 16px rgba(0,0,0,.08); }
-    *{box-sizing:border-box}
-    body{font-family:ui-sans-serif,system-ui,"Segoe UI","Noto Sans TC",Arial;margin:0;background:#f7f7f7;}
-    header{display:flex;justify-content:space-between;align-items:center;padding:12px 16px;background:#222;color:#fff;}
-    .meta{font-size:14px;opacity:.85}
+  body{
+    font-family:ui-sans-serif,system-ui,"Segoe UI","Noto Sans TC",Arial;
+    margin:0;
+    background:#f7f7f7;
+    overflow-x:hidden;        /* 避免整頁左右捲動 */
+  }
 
-    .wrap{display:grid;grid-template-columns:1fr 360px;gap:12px;padding:12px;}
-    .side{background:#fff;border-radius:10px;box-shadow:var(--shadow);padding:12px 16px}
+  header{
+    display:flex;
+    justify-content:space-between;
+    align-items:center;
+    padding:12px 16px;
+    background:#222;
+    color:#fff;
+  }
+  .meta{font-size:14px;opacity:.85}
 
-    .roll-wrap{display:flex;align-items:flex-start;background:#fff;border-radius:10px;box-shadow:var(--shadow);overflow:hidden}
-    .keys-wrap{position:sticky;left:0;z-index:2;box-shadow:inset -1px 0 0 #cfcfd4;background:#fff}
-    .scroll{overflow:auto;flex:1;}
+  .wrap{
+    display:flex;
+    gap:12px;
+    padding:12px;
+    align-items:flex-start;
+    max-width:100%;           /* 不超出視窗寬 */
+    box-sizing:border-box;
+  }
 
-    #keys,#roll{display:block}
+  /* 左邊鍵盤 + 右邊捲軸 */
+  .editor{
+    display:flex;
+    flex:1;
+    gap:0;
+    max-width:100%;           /* 整個 editor 不超出視窗 */
+    overflow:hidden;          /* 多出來的交給右邊容器自己捲 */
+  }
 
-    .toolbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
-    .btn{appearance:none;border:0;border-radius:8px;padding:10px 14px;background:#0b79d0;color:#fff;font-weight:600;cursor:pointer}
-    .badge{padding:4px 8px;border-radius:6px;background:#eef2f7;color:#334;text-align:center;font-weight:600;font-size:12px}
-    input[type="range"]{width:160px}
+  .panel{
+    background:#fff;
+    border-radius:10px;
+    box-shadow:0 6px 16px rgba(0,0,0,.08);
+  }
 
-    .hint{font-size:13px;color:#555}
-    ul{margin:6px 0 0 16px;padding:0}
-  </style>
+  #piano{
+    display:block;
+    border-radius:10px 0 0 10px;
+  }
+
+  .roll-container{
+    flex:1;
+    min-width:0;              /* 關鍵：允許比內容窄，內容在裡面 overflow */
+    overflow-x:auto;
+    overflow-y:hidden;
+    padding:0;
+    border-radius:0 10px 10px 0;
+  }
+  .roll-container canvas{
+    display:block;
+    border-radius:0 10px 10px 0;
+  }
+
+  #roll{
+    cursor:default;
+  }
+
+  .side{
+    padding:12px 16px
+  }
+  .btn{
+    appearance:none;border:0;border-radius:8px;
+    padding:10px 14px;background:#0b79d0;color:#fff;
+    font-weight:600;cursor:pointer
+  }
+  .row{display:flex;gap:10px;align-items:center;margin:6px 0}
+  .hint{font-size:13px;color:#555}
+  ul{margin:6px 0 0 16px;padding:0}
+</style>
 </head>
 <body>
 <header>
   <div>
     <div><strong>單音鋼琴捲軸編輯器</strong></div>
-    <div class="meta">檔案：{{ filename }}　BPM: {{ bpm }}　拍號：{{ numerator }}/{{ denominator }}</div>
+    <div class="meta">檔案：{{ filename }}</div>
   </div>
-  <div class="toolbar">
-    <span class="badge">縮放：<span id="zoomLabel">100%</span></span>
-    <input id="zoom" type="range" min="80" max="220" step="5" value="120" />
-    <button id="exportBtn" class="btn">輸出成單音 MIDI → 產生簡譜</button>
+  <div class="row">
+    <button id="exportBtn" class="btn">輸出成單音 MIDI</button>
   </div>
 </header>
 
-<div id="cfg"
-     data-bpm="{{ bpm }}"
-     data-num="{{ numerator }}"
-     data-den="{{ denominator }}"
-     data-upq="{{ units_per_quarter }}">
-</div>
-<script id="init-notes" type="application/json">{{ notes_json|safe }}</script>
+<!-- 初始 notes JSON -->
+<script id="notes-data" type="application/json">{{ notes_json|safe }}</script>
 
 <div class="wrap">
-  <div class="roll-wrap">
-    <div class="keys-wrap">
-      <canvas id="keys"></canvas>
-    </div>
-    <div class="scroll">
+  <div class="editor">
+    <!-- 左邊音階尺 -->
+    <canvas id="piano" class="panel"></canvas>
+
+    <!-- 右邊鋼琴捲軸（可左右滾動） -->
+    <div class="panel roll-container">
       <canvas id="roll"></canvas>
     </div>
   </div>
 
-  <div class="side">
+  <div class="panel side">
     <div class="row"><strong>操作說明</strong></div>
     <div class="hint">
       <ul>
-        <li>拖曳音符移動；拖拉邊緣改長度</li>
-        <li>空白鍵切換「新增模式」；點一下空白格新增音符</li>
-        <li>點一下音符刪除（右鍵也可刪除）</li>
-        <li>所有時間單位＝「格」；四分＝<span id="upqText"></span> 格</li>
+        <li>拖曳音符移動；拖拉左右邊緣可改長度</li>
+        <li>空白鍵切換「新增模式」；點擊格子新增音符</li>
+        <li>非新增模式下，點一下音符可刪除</li>
+        <li>橫向格線等距（每格約 0.05 秒）</li>
+        <li>左側顯示對應音階（C3, C4...）。</li>
       </ul>
-      <p>※ 傳回後端時會自動單音化（遇重疊即切斷前一音）。</p>
+      <p>※ 送回後端時會自動單音化（遇重疊即切斷前一音）。</p>
     </div>
   </div>
 </div>
 
 <script>
-const cfgEl = document.getElementById('cfg');
-const UNITS_PER_QUARTER = parseInt(cfgEl.dataset.upq, 10);
-const BPM = parseFloat(cfgEl.dataset.bpm || '80');
-const NUM = parseInt(cfgEl.dataset.num || '4', 10);
-const DEN = parseInt(cfgEl.dataset.den || '4', 10);
-const INIT_NOTES = JSON.parse(document.getElementById('init-notes').textContent || '[]');
-document.getElementById('upqText').textContent = String(UNITS_PER_QUARTER);
+  // 常數：要跟 app.py 的 SEC_PER_UNIT 對應
+  const UNITS_PER_SECOND = 20;   // 1 秒 20 格 → 每格 0.05 秒
+  const UNITS_PER_BAR = 80;      // 略定義一小節為 4 秒
+  const DEFAULT_NOTE_UNITS = 20; // 新增音符預設 1 秒長
 
-// ===== 縮放 =====
-let SCALE = 1.2;
-const zoomInput = document.getElementById('zoom');
-const zoomLabel = document.getElementById('zoomLabel');
-function updateZoomLabel(){ zoomLabel.textContent = Math.round(SCALE*100)+'%'; }
-zoomInput.addEventListener('input', ()=>{
-  SCALE = parseInt(zoomInput.value, 10) / 100;
-  updateZoomLabel();
-  rebuildSizeAndRedraw();
-});
-updateZoomLabel();
+  const INIT_NOTES = JSON.parse(document.getElementById('notes-data').textContent || '[]');
 
-// ===== 幾何參數 =====
-const R = {
-  lanes: 48,
-  pitchMin: 48,
-  laneH: 16,
-  unitW: 12,
-  bars: 16,
-  unitsPerBar: NUM * (UNITS_PER_QUARTER * (4 / DEN))
-};
-let KEY_W = 120;
-let TIME_RULER_H = 40;
+  // Piano-roll 視覺參數
+  const R = {
+    lanes: 48,         // 顯示的音高列數
+    pitchMin: 48,      // C3=48 起
+    laneH: 16,
+    unitW: 12,         // 1 格寬
+    bars: 12,          // 顯示幾小節
+    unitsPerBar: UNITS_PER_BAR,
+  };
 
-const GRID_H = ()=> R.laneH * R.lanes;
-const totalUnits = ()=> R.unitsPerBar * R.bars;
+  const rollCanvas = document.getElementById('roll');
+  const pianoCanvas = document.getElementById('piano');
 
-// ===== 畫布 =====
-const keysCvs = document.getElementById('keys');
-const rollCvs = document.getElementById('roll');
-const kctx = keysCvs.getContext('2d', {alpha:false});
-const rctx = rollCvs.getContext('2d', {alpha:false});
-function setCanvasCSSSize(el){ el.style.width = el.width + 'px'; el.style.height = el.height + 'px'; }
+  // 設定鋼琴捲軸尺寸
+  rollCanvas.width  = R.unitW * R.unitsPerBar * R.bars;
+  rollCanvas.height = R.laneH * R.lanes;
+  rollCanvas.style.width  = rollCanvas.width + 'px';
+  rollCanvas.style.height = rollCanvas.height + 'px';
 
-function rebuildSizeAndRedraw(){
-  R.laneH = Math.max(12, Math.round(16 * SCALE));
-  R.unitW = Math.max(8,  Math.round(12 * SCALE));
-  KEY_W = Math.max(100, Math.round(120 * SCALE));
-  TIME_RULER_H = Math.max(28, Math.round(40 * SCALE));
+  // 設定音階尺尺寸（固定寬度 70px）
+  pianoCanvas.width  = 70;
+  pianoCanvas.height = rollCanvas.height;
+  pianoCanvas.style.width  = pianoCanvas.width + 'px';
+  pianoCanvas.style.height = rollCanvas.style.height;
 
-  keysCvs.width  = KEY_W;
-  keysCvs.height = GRID_H() + TIME_RULER_H;
-  rollCvs.width  = R.unitW * totalUnits();
-  rollCvs.height = GRID_H() + TIME_RULER_H;
-  setCanvasCSSSize(keysCvs);
-  setCanvasCSSSize(rollCvs);
-  drawAll();
-}
+  const rollCtx  = rollCanvas.getContext('2d');
+  const pianoCtx = pianoCanvas.getContext('2d');
 
-// ===== 狀態 =====
-let notes = INIT_NOTES.map(n => ({ pitch: n.pitch, start: n.start, end: n.end }));
-let modeAdd = false;
-let dragging = null;
-let didDrag = false;
-let suppressNextClick = false;
+  // 狀態
+  let notes = INIT_NOTES.map(n => ({...n})); // {pitch,start,end}
+  let modeAdd = false; // 新增模式
+  let dragging = null; // {idx, edge:"left"|"right"|null, offU, offLane}
 
-// ===== 座標/換算 =====
-function updateCursor(){ rollCvs.style.cursor = modeAdd ? 'crosshair' : 'default'; }
-function pitchToLane(p){ return (R.pitchMin + R.lanes - 1) - p; }
-function laneToPitch(l){ return (R.pitchMin + R.lanes - 1) - l; }
+  function pitchToLane(p){ return (R.pitchMin + R.lanes - 1) - p; }
+  function laneToPitch(l){ return (R.pitchMin + R.lanes - 1) - l; }
+  function xToUnit(x){ return Math.max(0, Math.round(x / R.unitW)); }
+  function yToLane(y){ return Math.max(0, Math.min(R.lanes-1, Math.floor(y / R.laneH))); }
 
-function getCanvasXY(canvas, evt){
-  const rect = canvas.getBoundingClientRect();
-  const scaleX = canvas.width  / rect.width;
-  const scaleY = canvas.height / rect.height;
-  return { x: (evt.clientX - rect.left) * scaleX, y: (evt.clientY - rect.top) * scaleY };
-}
-function xToUnit(x){ return Math.max(0, Math.round(x / R.unitW)); }
-function yToLane(y){
-  const gy = Math.max(0, Math.min(GRID_H() - 1, y));
-  return Math.max(0, Math.min(R.lanes-1, Math.floor(gy / R.laneH)));
-}
-function midiToName(p){
-  const names = ['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'];
-  const name = names[p % 12] || '?';
-  const octave = Math.floor(p / 12) - 1;
-  return name + octave;
-}
-
-// ===== 繪圖 =====
-function drawKeys(){
-  kctx.clearRect(0,0,keysCvs.width,keysCvs.height);
-  for(let l=0; l<R.lanes; l++){
-    const pc = laneToPitch(l) % 12;
-    const isBlack = (pc===1||pc===3||pc===6||pc===8||pc===10);
-
-    kctx.fillStyle = isBlack ? '#555' : '#fdfdfd';
-    kctx.fillRect(0, l*R.laneH, KEY_W, R.laneH-1);
-    kctx.strokeStyle = '#aaa';
-    kctx.strokeRect(0, l*R.laneH, KEY_W, R.laneH-1);
-
-    kctx.fillStyle = isBlack ? '#fff' : '#222';
-    kctx.font = 'bold ' + Math.round(15*SCALE) + 'px "Segoe UI", system-ui, -apple-system';
-    kctx.textAlign = 'left';
-    kctx.textBaseline = 'middle';
-    kctx.fillText(midiToName(laneToPitch(l)), 6, l*R.laneH + R.laneH/2);
-  }
-  const rulerTop = GRID_H();
-  kctx.fillStyle = '#f0f0f0';
-  kctx.fillRect(0, rulerTop, KEY_W, TIME_RULER_H);
-}
-
-function drawRoll(){
-  rctx.clearRect(0,0,rollCvs.width,rollCvs.height);
-
-  for(let l=0; l<R.lanes; l++){
-    const pc = laneToPitch(l) % 12;
-    const isBlack = (pc===1||pc===3||pc===6||pc===8||pc===10);
-    rctx.fillStyle = isBlack ? '#f2f2f6' : '#f9f9fb';
-    rctx.fillRect(0, l*R.laneH, rollCvs.width, R.laneH);
-  }
-
-  const totalU = totalUnits();
-  for(let u=0; u<=totalU; u++){
-    const x = u * R.unitW;
-    rctx.beginPath();
-    rctx.moveTo(x, 0);
-    rctx.lineTo(x, GRID_H());
-    rctx.strokeStyle = (u % R.unitsPerBar === 0) ? '#bbb'
-                    : (u % UNITS_PER_QUARTER === 0 ? '#ddd' : '#eee');
-    rctx.lineWidth = (u % R.unitsPerBar === 0) ? 1.2 : 1;
-    rctx.stroke();
-  }
-
-  notes.forEach(n=>{
-    const x = n.start*R.unitW;
-    const w = Math.max(1,(n.end-n.start)*R.unitW);
-    const y = pitchToLane(n.pitch)*R.laneH+2;
-    const h = R.laneH-4;
-    rctx.fillStyle='#0b79d0';
-    rctx.fillRect(x,y,w,h);
-    rctx.fillStyle='#084d80';
-    rctx.fillRect(x,y,4,h);
-    rctx.fillRect(x+w-4,y,4,h);
-  });
-
-  const beatSec = 60 / BPM;
-  const beatUnits = UNITS_PER_QUARTER;
-  const beatsTotal = Math.floor(totalU / beatUnits);
-  const rulerTop = GRID_H();
-
-  rctx.fillStyle = '#f0f0f0';
-  rctx.fillRect(0, rulerTop, rollCvs.width, TIME_RULER_H);
-  rctx.strokeStyle = '#ccc';
-  rctx.beginPath();
-  rctx.moveTo(0, rulerTop + 0.5);
-  rctx.lineTo(rollCvs.width, rulerTop + 0.5);
-  rctx.stroke();
-
-  rctx.font = Math.round(12*SCALE) + 'px system-ui';
-  rctx.textAlign = 'center';
-  rctx.textBaseline = 'top';
-  for(let b=0; b<=beatsTotal; b++){
-    const x = b * beatUnits * R.unitW;
-    const tSec = b * beatSec;
-    let label = tSec.toFixed(2).replace(/\.00$/,'').replace(/0$/,'');
-    rctx.strokeStyle = (b % NUM === 0) ? '#666' : '#999';
-    rctx.beginPath();
-    rctx.moveTo(x, rulerTop);
-    rctx.lineTo(x, rulerTop + 6);
-    rctx.stroke();
-    if(b % 2 === 0){
-      rctx.fillStyle = '#333';
-      rctx.fillText(label, x, rulerTop + 8);
-    }
-  }
-}
-
-function drawAll(){ drawKeys(); drawRoll(); }
-
-// ===== 命中測試 =====
-function hitTest(x, y, pad=8){
-  for(let i=notes.length-1;i>=0;i--){
-    const n=notes[i];
-    const bx1 = n.start*R.unitW;
-    const bx2 = n.end*R.unitW;
-    const y1 = pitchToLane(n.pitch)*R.laneH+2;
-    const y2 = y1+(R.laneH-4);
-    if(x>=bx1-pad && x<=bx2+pad && y>=y1-pad && y<=y2+pad){
-      const edge=(x-bx1<8)?'left':((bx2-x<8)?'right':null);
-      return {idx:i, edge};
-    }
-  }
-  return null;
-}
-
-// ===== 互動 =====
-rollCvs.addEventListener('mousedown', e=>{
-  const {x,y}=getCanvasXY(rollCvs, e);
-  if(y >= GRID_H()) return;
-  const hit=hitTest(x,y);
-  didDrag = false;
-  suppressNextClick = false;
-
-  if(hit){
-    const n=notes[hit.idx];
-    dragging={
-      idx:hit.idx, edge:hit.edge,
-      startX:x, startY:y,
-      offU:xToUnit(x)-n.start,
-      offLane:yToLane(y)-pitchToLane(n.pitch)
+  // 轉換滑鼠座標 → roll canvas 內部座標（考慮 CSS 縮放）
+  function getMousePos(evt){
+    const rect = rollCanvas.getBoundingClientRect();
+    const scaleX = rollCanvas.width  / rect.width;
+    const scaleY = rollCanvas.height / rect.height;
+    return {
+      x: (evt.clientX - rect.left) * scaleX,
+      y: (evt.clientY - rect.top)  * scaleY
     };
-  }else{
-    dragging = null;
   }
-});
 
-window.addEventListener('mousemove', e=>{
-  if(!dragging) return;
-  const {x,y}=getCanvasXY(rollCvs, e);
-  if(Math.abs(x-dragging.startX)>2 || Math.abs(y-dragging.startY)>2){ didDrag = true; }
-  const u=xToUnit(x);
-  const lane=yToLane(y);
-  const n=notes[dragging.idx];
-  if(!n) return;
-
-  if(dragging.edge==='left'){
-    n.start=Math.min(n.end-1,u);
-  }else if(dragging.edge==='right'){
-    n.end=Math.max(n.start+1,u);
-  }else{
-    const dur=n.end-n.start;
-    n.start=Math.max(0,u-dragging.offU);
-    n.end=n.start+dur;
-    const newLane=pitchToLane(n.pitch)+(lane-(pitchToLane(n.pitch)+dragging.offLane));
-    n.pitch=laneToPitch(Math.max(0,Math.min(R.lanes-1,newLane)));
+  const NOTE_NAMES = ['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'];
+  function midiToNoteName(p){
+    const name = NOTE_NAMES[p % 12];
+    const octave = Math.floor(p / 12) - 1; // MIDI 60 → C4
+    return name + octave;
   }
-  drawRoll();
-});
 
-window.addEventListener('mouseup', ()=>{
-  if(dragging && didDrag){ suppressNextClick = true; }
-  dragging=null;
-});
+  // 畫左側音階尺
+  function drawPiano(){
+    const w = pianoCanvas.width;
+    const h = pianoCanvas.height;
+    pianoCtx.clearRect(0, 0, w, h);
 
-rollCvs.addEventListener('click', e=>{
-  if(suppressNextClick){ suppressNextClick=false; return; }
-  const {x,y}=getCanvasXY(rollCvs, e);
-  if(y >= GRID_H()) return;
-  const hit=hitTest(x,y);
-  if(hit){
-    notes.splice(hit.idx,1);
-    drawRoll(); return;
+    for(let l=0; l<R.lanes; l++){
+      const p = laneToPitch(l);
+      const y = l * R.laneH;
+      const isBlack = (p%12===1 || p%12===3 || p%12===6 || p%12===8 || p%12===10);
+
+      // 鍵盤底色
+      pianoCtx.fillStyle = isBlack ? '#555' : '#f5f5f5';
+      pianoCtx.fillRect(0, y, w, R.laneH);
+
+      // 水平分隔線
+      pianoCtx.beginPath();
+      pianoCtx.moveTo(0, y + 0.5);
+      pianoCtx.lineTo(w, y + 0.5);
+      pianoCtx.strokeStyle = '#999';
+      pianoCtx.lineWidth = 1;
+      pianoCtx.stroke();
+
+      // 只在 C 音標註音名（避免太擠）
+      if (p % 12 === 0) { // C
+        const label = midiToNoteName(p);
+        pianoCtx.fillStyle = isBlack ? '#fff' : '#333';
+        pianoCtx.font = '11px system-ui';
+        pianoCtx.fillText(label, 6, y + R.laneH - 4);
+      }
+    }
   }
-  if(modeAdd){
-    const lane=yToLane(y);
-    notes.push({ pitch:laneToPitch(lane), start:xToUnit(x), end:xToUnit(x)+UNITS_PER_QUARTER });
+
+  // 畫右側鋼琴捲軸
+  function drawRoll(){
+    rollCtx.clearRect(0,0,rollCanvas.width,rollCanvas.height);
+
+    // 背景鍵盤色（與左側一致）
+    for(let l=0; l<R.lanes; l++){
+      const p = laneToPitch(l) % 12;
+      const isBlack = (p===1 || p===3 || p===6 || p===8 || p===10);
+      rollCtx.fillStyle = isBlack ? '#f2f2f6' : '#f9f9fb';
+      rollCtx.fillRect(0, l*R.laneH, rollCanvas.width, R.laneH);
+    }
+
+    // 垂直格線：小節、每秒、其餘
+    const totalUnits = R.unitsPerBar * R.bars;
+    for(let u=0; u<=totalUnits; u++){
+      rollCtx.beginPath();
+      rollCtx.moveTo(u*R.unitW, 0);
+      rollCtx.lineTo(u*R.unitW, rollCanvas.height);
+      let color = '#eee';
+      if (u % R.unitsPerBar === 0) color = '#bbb';         // 小節
+      else if (u % UNITS_PER_SECOND === 0) color = '#ddd'; // 每秒
+      rollCtx.strokeStyle = color;
+      rollCtx.lineWidth = (u % R.unitsPerBar === 0) ? 1.2 : 1;
+      rollCtx.stroke();
+    }
+
+    // 音符
+    notes.forEach(n=>{
+      const x  = n.start * R.unitW;
+      const w  = Math.max(1, (n.end - n.start) * R.unitW);
+      const y  = pitchToLane(n.pitch) * R.laneH + 2;
+      const h  = R.laneH - 4;
+
+      rollCtx.fillStyle = '#0b79d0';
+      rollCtx.fillRect(x, y, w, h);
+      rollCtx.fillStyle = '#084d80';
+      rollCtx.fillRect(x, y, 4, h);
+      rollCtx.fillRect(x + w - 4, y, 4, h);
+    });
+
+    if(modeAdd){
+      rollCtx.fillStyle = 'rgba(11,121,208,.08)';
+      rollCtx.fillRect(0, 0, rollCanvas.width, rollCanvas.height);
+    }
+  }
+
+  function drawAll(){
+    drawPiano();
     drawRoll();
   }
-});
 
-rollCvs.addEventListener('contextmenu', e=>{
-  e.preventDefault();
-  const {x,y}=getCanvasXY(rollCvs, e);
-  const hit=hitTest(x,y);
-  if(hit){ notes.splice(hit.idx,1); drawRoll(); }
-});
-
-window.addEventListener('keydown', e=>{
-  if(e.code==='Space'){
-    e.preventDefault();
-    modeAdd=!modeAdd;
-    updateCursor();
+  function hitTest(x, y){
+    for(let i=notes.length-1;i>=0;i--){
+      const n = notes[i];
+      const x1 = n.start * R.unitW;
+      const x2 = n.end   * R.unitW;
+      const y1 = pitchToLane(n.pitch)*R.laneH+2;
+      const y2 = y1 + (R.laneH-4);
+      if(x>=x1 && x<=x2 && y>=y1 && y<=y2){
+        const edge = (x - x1 < 6) ? 'left' : ((x2 - x < 6) ? 'right' : null);
+        return {idx:i, edge};
+      }
+    }
+    return null;
   }
-});
 
-document.getElementById('exportBtn').addEventListener('click', async ()=>{
-  notes = notes.filter(n => n.end > n.start);
-  const res = await fetch('/save-midi', {
-    method:'POST',
-    headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({ notes, bpm:BPM, numerator:NUM, denominator:DEN })
+  rollCanvas.addEventListener('mousedown', (e)=>{
+    const {x, y} = getMousePos(e);
+
+    if(modeAdd){
+      const lane = yToLane(y);
+      const pitch = laneToPitch(lane);
+      const u = xToUnit(x);
+      notes.push({pitch, start:u, end:u+DEFAULT_NOTE_UNITS}); // 預設 1 秒
+      drawAll();
+      return;
+    }
+
+    const hit = hitTest(x,y);
+    if(hit){
+      const n = notes[hit.idx];
+      dragging = {
+        idx: hit.idx,
+        edge: hit.edge,
+        offU: xToUnit(x) - n.start,
+        offLane: yToLane(y) - pitchToLane(n.pitch),
+      };
+    }
   });
-  const html = await res.text();
-  document.open(); document.write(html); document.close();
-});
 
-updateCursor();
-rebuildSizeAndRedraw();
+  window.addEventListener('mousemove', (e)=>{
+    if(!dragging) return;
+    const {x, y} = getMousePos(e);
+    const u = xToUnit(x);
+    const lane = yToLane(y);
+
+    const n = notes[dragging.idx];
+    if(dragging.edge === 'left'){
+      n.start = Math.min(n.end-1, u);
+    }else if(dragging.edge === 'right'){
+      n.end = Math.max(n.start+1, u);
+    }else{
+      const dur = n.end - n.start;
+      n.start = Math.max(0, u - dragging.offU);
+      n.end   = n.start + dur;
+      const newLane = lane;
+      n.pitch = laneToPitch(Math.max(0, Math.min(R.lanes-1, newLane)));
+    }
+    drawAll();
+  });
+
+  window.addEventListener('mouseup', ()=> dragging=null);
+
+  // 點一下刪除（非新增模式）
+  rollCanvas.addEventListener('click', (e)=>{
+    if(modeAdd) return;
+    const {x, y} = getMousePos(e);
+    const hit = hitTest(x,y);
+    if(hit && !dragging){
+      notes.splice(hit.idx,1);
+      drawAll();
+    }
+  });
+
+  // 空白鍵切換新增模式
+  window.addEventListener('keydown', (e)=>{
+    if(e.code === 'Space'){
+      e.preventDefault();
+      modeAdd = !modeAdd;
+      drawAll();
+    }
+  });
+
+  // 送回後端
+  document.getElementById('exportBtn').addEventListener('click', async ()=>{
+    notes = notes.filter(n => n.end > n.start);
+    const res = await fetch('/save-midi', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ notes })
+    });
+    const html = await res.text();
+    document.open(); document.write(html); document.close();
+  });
+
+  drawAll();
 </script>
 </body>
 </html>

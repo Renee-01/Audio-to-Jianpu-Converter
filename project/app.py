@@ -1,24 +1,27 @@
-from flask import Flask, render_template, request, send_file, redirect, url_for
-import os, json, math
+from flask import Flask, render_template, request, send_file
+import os, json
 from werkzeug.utils import secure_filename
-from MIDI_to_notation import convert_midi_to_jianpu
 from Audio_to_MIDI import audio_to_midi
 import pretty_midi
 from datetime import datetime
 
-GRID_UNITS_PER_QUARTER = 16  # 與 MIDI_to_notation.py 一致
+# 每一格代表多少秒（這裡設 0.05 秒 = 一秒 20 格）
+SEC_PER_UNIT = 0.05
 
 app = Flask(__name__)
 UPLOAD_FOLDER = 'uploads'
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 ALLOWED_AUDIO_EXTENSIONS = {'mp3', 'wav'}
 
+
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_AUDIO_EXTENSIONS
+
 
 @app.route('/')
 def index():
     return render_template('index.html')
+
 
 # ---------- 純工具函式：讀 MIDI → 回傳 pretty_midi.Note 清單 ----------
 def extract_notes_for_editor(midi_path: str):
@@ -29,14 +32,13 @@ def extract_notes_for_editor(midi_path: str):
     notes = sorted(inst.notes, key=lambda n: (n.start, n.end))
     return notes
 
+
 # ---------- 上傳音檔 → 轉 MIDI → 進入編輯頁 ----------
-@app.route('/audio-upload', methods=['GET', 'POST'])
+@app.route('/audio-upload', methods=['POST'])
 def upload_file():
     # 1) 檢查檔案
-    if request.method == 'GET':
-        return redirect(url_for('index'))   # 直接回首頁重新上傳
     if 'file' not in request.files:
-        return redirect(url_for('index'))
+        return "錯誤：沒有檔案被上傳。"
     file = request.files['file']
     if file.filename == '':
         return "錯誤：未選擇檔案。"
@@ -49,72 +51,46 @@ def upload_file():
     audio_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
     file.save(audio_path)
 
-    # 3) 參數
-    try:
-        bpm = float(request.form.get('bpm', 80))
-    except ValueError:
-        bpm = 80
-    try:
-        numerator = int(request.form.get('numerator', 4))
-        denominator = int(request.form.get('denominator', 4))
-    except ValueError:
-        numerator, denominator = 4, 4
-
-    # 4) 音訊 -> MIDI
+    # 3) 音訊 -> MIDI
     try:
         midi_path = audio_to_midi(audio_path, out_dir=app.config['UPLOAD_FOLDER'])
         midi_path = os.path.abspath(midi_path)
     except Exception as e:
         return f"❌ 音訊轉 MIDI 失敗：{e}"
 
-    # 5) 給前端的 notes（單位：格）
-    beat_sec = 60.0 / bpm
-    sec_per_unit = (beat_sec / GRID_UNITS_PER_QUARTER)
-
+    # 4) 轉成前端要的 notes（單位：格）
     raw_notes = extract_notes_for_editor(midi_path)
     notes_for_ui = []
     for n in raw_notes:
-        start_u = int(round(n.start / sec_per_unit))
-        end_u   = int(round(n.end   / sec_per_unit))
+        start_u = int(round(n.start / SEC_PER_UNIT))
+        end_u = int(round(n.end / SEC_PER_UNIT))
         if end_u <= start_u:
             end_u = start_u + 1
         notes_for_ui.append({"pitch": int(n.pitch), "start": start_u, "end": end_u})
 
-    # 6) 轉到編輯頁
-    midi_rel = os.path.relpath(midi_path, start=os.path.abspath(app.config['UPLOAD_FOLDER'])).replace(os.sep, '/')
     return render_template(
         'edit.html',
         filename=filename,
-        midi_rel=midi_rel,
-        bpm=bpm,
-        numerator=numerator,
-        denominator=denominator,
-        units_per_quarter=GRID_UNITS_PER_QUARTER,
-        notes_json=json.dumps(notes_for_ui, ensure_ascii=False)
+        notes_json=json.dumps(notes_for_ui, ensure_ascii=False),
     )
 
-# ---------- 編輯頁送回的音符 → 單音化存 MIDI → 轉簡譜 ----------
+
+# ---------- 編輯頁送回的音符 → 單音化存 MIDI ----------
 @app.route('/save-midi', methods=['POST'])
 def save_midi():
     data = request.get_json(force=True)
     notes = data.get("notes", [])
-    bpm = float(data.get("bpm", 80))
-    numerator = int(data.get("numerator", 4))
-    denominator = int(data.get("denominator", 4))
 
-    beat_sec = 60.0 / bpm
-    sec_per_unit = beat_sec / GRID_UNITS_PER_QUARTER
-
-    # 1) 單音化：遇到新音就截斷前音
+    # 單音化：依 start 排序，遇到新音就截斷前一音
     notes_sorted = sorted(notes, key=lambda x: (x["start"], x["end"]))
     mono = []
     cur = None
     for n in notes_sorted:
-        s = float(n["start"]) * sec_per_unit
-        e = float(n["end"])   * sec_per_unit
+        s = float(n["start"]) * SEC_PER_UNIT
+        e = float(n["end"]) * SEC_PER_UNIT
         p = int(n["pitch"])
         if e <= s:
-            e = s + sec_per_unit
+            e = s + SEC_PER_UNIT
         if cur is None:
             cur = {"start": s, "end": e, "pitch": p}
             continue
@@ -122,6 +98,7 @@ def save_midi():
             mono.append(cur)
             cur = {"start": s, "end": e, "pitch": p}
         else:
+            # 新音開始時間在前一音裡面 → 截斷前音到新音開始
             if s > cur["start"]:
                 cur["end"] = s
                 if cur["end"] > cur["start"]:
@@ -130,26 +107,16 @@ def save_midi():
     if cur and cur["end"] > cur["start"]:
         mono.append(cur)
 
-    # 2) 小節切齊，避免 LilyPond barcheck fail
-    bar_len_sec = numerator * beat_sec * (4.0 / denominator)
-    EPS = 1e-7
-    split_notes = []
-    for n in mono:
-        s, e, p = n["start"], n["end"], n["pitch"]
-        while s < e - EPS:
-            bar_end = (math.floor(s / bar_len_sec) + 1) * bar_len_sec
-            te = min(e, bar_end - EPS)               # 不要剛好卡在小節線
-            if te <= s + EPS:                        # 安全閥：至少一格
-                te = min(e, s + sec_per_unit)
-            split_notes.append({"start": s, "end": te, "pitch": p})
-            s = te
-
-    # 3) 寫成新的 MIDI（只寫 split_notes）
+    # 寫出單音 MIDI
     pm = pretty_midi.PrettyMIDI()
     inst = pretty_midi.Instrument(program=0)
-    for n in split_notes:
+    for n in mono:
         inst.notes.append(pretty_midi.Note(
-            velocity=96, pitch=n["pitch"], start=n["start"], end=n["end"]))
+            velocity=96,
+            pitch=n["pitch"],
+            start=n["start"],
+            end=n["end"]
+        ))
     pm.instruments.append(inst)
 
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -158,29 +125,15 @@ def save_midi():
     midi_out = os.path.join(out_dir, f"edited_{ts}.mid")
     pm.write(midi_out)
 
-    # 4) 轉簡譜（產 PDF 可能失敗，但頁面一樣要顯示）
-    text_output, pdf_rel = "", None
-    try:
-        result = convert_midi_to_jianpu(midi_out, bpm, numerator, denominator)
-        text_output = result.get('text_output', '')
-        pdf_path = result.get('pdf_path')
-        if pdf_path and os.path.exists(pdf_path):
-            pdf_rel = os.path.relpath(os.path.abspath(pdf_path),
-                                      start=os.path.abspath(app.config['UPLOAD_FOLDER'])).replace(os.sep, '/')
-    except Exception as ex:
-        # 把錯誤訊息帶到頁面，但不中斷
-        text_output = f"（產生 PDF 失敗）{ex}\n" + text_output
-
-    midi_rel = os.path.relpath(os.path.abspath(midi_out),
-                               start=os.path.abspath(app.config['UPLOAD_FOLDER'])).replace(os.sep, '/')
+    midi_rel = os.path.relpath(
+        os.path.abspath(midi_out),
+        start=os.path.abspath(app.config['UPLOAD_FOLDER'])
+    ).replace(os.sep, '/')
 
     return render_template(
         'result.html',
         filename=os.path.basename(midi_out),
-        filepath=midi_out,
-        text_output=text_output,
-        pdf_rel=pdf_rel,
-        midi_rel=midi_rel,
+        midi_rel=midi_rel
     )
 
 
@@ -191,12 +144,6 @@ def download_file(subpath):
         return f"❌ 找不到檔案：{abs_path}", 404
     return send_file(abs_path, as_attachment=True)
 
-@app.route('/view/<path:subpath>')
-def view_file(subpath):
-    abs_path = os.path.abspath(os.path.join(app.config['UPLOAD_FOLDER'], subpath))
-    if not os.path.isfile(abs_path):
-        return f"❌ 找不到檔案：{abs_path}", 404
-    return send_file(abs_path, mimetype='application/pdf', as_attachment=False)
 
 if __name__ == '__main__':
     app.run(debug=True)

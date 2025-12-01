@@ -2,94 +2,34 @@
 <html lang="zh-Hant">
 <head>
   <meta charset="UTF-8" />
-  <title>音訊轉換簡譜系統</title>
+  <title>音訊轉單音 MIDI 編輯器</title>
   <style>
-    body {
-      margin: 0;
-      font-family: 'Segoe UI', sans-serif;
-      background-color: #bfaeae;
-      display: flex;
-      justify-content: center;
-      align-items: center;
-      height: 100vh;
-      flex-direction: column;
-    }
-
-    .container {
-      text-align: center;
-      background: url("{{ url_for('static', filename='images/Brown_Collage_Paper_Music_Presentation.png') }}") no-repeat center;
-      background-size: cover;
-      width: 600px;
-      height: 400px;
-      padding: 60px;
-      box-shadow: 0 0 20px rgba(0,0,0,0.2);
-    }
-  .content{
-    width: 520px;
-    max-width: calc(100% - 40px);
-    margin: 0 auto;
-    text-align: left;
-  }
-
-    /* 標題白字 */
-    h1 {
-      font-size: 36px;
-      color: #fff;
-      font-weight: bold;
-      margin-bottom: 40px;
-      text-shadow: 0 2px 6px rgba(0,0,0,.45);
-    }
-
-    .upload-btn {
-      padding: 14px 30px;
-      border: none;
-      border-radius: 30px;
-      background-color: #eee;
-      font-size: 16px;
-      font-weight: bold;
-      box-shadow: 2px 2px 5px rgba(0,0,0,0.2);
-      cursor: pointer;
-    }
-
-    .upload-btn:hover {
-      background-color: #ddd;
-    }
-
-    input[type="file"] { display: none; }
-
-    label[for="bpm"],
-    label[for="numerator"],
-    label[for="denominator"]{
-      display: block;
-      color: #fff;
-      margin: 10px 0 4px;
-    }
-    .upload-row{
-      text-align: center;
-      margin: 12px 0 20px;
-    }
+    body{font-family:ui-sans-serif,system-ui,"Segoe UI","Noto Sans TC",Arial;margin:0;background:#f7f7f7;}
+    header{padding:16px 20px;background:#222;color:#fff;}
+    main{max-width:720px;margin:24px auto;padding:0 16px;}
+    .card{background:#fff;border-radius:10px;padding:20px;box-shadow:0 6px 16px rgba(0,0,0,.08);}
+    .row{margin-bottom:12px;}
+    .btn{appearance:none;border:0;border-radius:8px;padding:10px 16px;background:#0b79d0;color:#fff;font-weight:600;cursor:pointer;}
+    input[type="file"]{width:100%;}
   </style>
 </head>
 <body>
-  <div class="container">
-    <div class="content"></div>
-    <h1>音訊轉換簡譜系統</h1>
-
-    <form class="form-grid" action="/audio-upload" method="post" enctype="multipart/form-data">
-      <label for="file-upload" class="upload-btn">選擇 音訊(.mp3、.wav) 檔案</label>
-      <input id="file-upload" type="file" name="file" accept=".mp3,.wav" required />
-      <br><br>
-      <label for="bpm">請輸入 BPM（預設 80）</label>
-      <input id="bpm" type="number" name="bpm" value="80" min="30" max="300" />
-      <br>
-      <label for="numerator">請輸入拍號分子 (預設=4)</label>
-      <input id="numerator" type="number" name="numerator" value="4" min="0" max="12" />
-      <br>
-      <label for="denominator">請輸入拍號分母 (預設=4)</label>
-      <input id="denominator" type="number" name="denominator" value="4" min="0" max="12" />
-      <br><br>
-      <button type="submit" class="submit-btn">上傳並轉換</button>
+<header>
+  <h1>音訊 → MIDI → 單音編輯</h1>
+</header>
+<main>
+  <div class="card">
+    <form action="/audio-upload" method="post" enctype="multipart/form-data">
+      <div class="row">
+        <label>選擇音訊檔（.mp3 / .wav）</label><br>
+        <input type="file" name="file" required>
+      </div>
+      <button type="submit" class="btn">上傳並建立 MIDI</button>
     </form>
+    <p style="font-size:13px;color:#555;margin-top:12px;">
+      上傳後會自動轉成 MIDI，並進入鋼琴捲軸介面讓你手動調整音符，再輸出成單音 MIDI 檔下載。
+    </p>
   </div>
+</main>
 </body>
 </html>
