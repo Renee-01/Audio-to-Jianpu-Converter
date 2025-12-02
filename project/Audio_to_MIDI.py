@@ -62,7 +62,6 @@ def _extract_vocals_with_demucs(audio: Path) -> Path:
     return candidates[0]
 
 
-
 def audio_to_midi(
     input_audio_path: str,
     out_dir: Optional[str] = None,

@@ -56,7 +56,6 @@ def upload_file():
         midi_path = audio_to_midi(
             audio_path,
             out_dir=app.config['UPLOAD_FOLDER'],
-            remove_accompaniment=remove_accompaniment
         )
         midi_path = os.path.abspath(midi_path)
     except Exception as e:
