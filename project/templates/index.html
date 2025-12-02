@@ -4,39 +4,72 @@
   <meta charset="UTF-8" />
   <title>音訊轉單音 MIDI 編輯器</title>
   <style>
-    body{font-family:ui-sans-serif,system-ui,"Segoe UI","Noto Sans TC",Arial;margin:0;background:#f7f7f7;}
-    header{padding:16px 20px;background:#222;color:#fff;}
+    body { 
+            margin: 0;
+            font-family: 'Segoe UI', sans-serif;
+            background-color: #bfaeae;
+            display: flex; 
+            justify-content: center; 
+            align-items: center; 
+            height: 100vh; 
+            flex-direction: column;
+          }
+    .container {
+                  text-align: center;
+                  background: url("{{ url_for('static', filename='images/Brown_Collage_Paper_Music_Presentation.png') }}") no-repeat center;
+                  background-size: cover;
+                  width: 600px; 
+                  height: 400px; 
+                  padding: 60px; 
+                  box-shadow: 0 0 20px rgba(0,0,0,0.2); }
+    .content{
+              width: 520px;/* 你可調整寬度 */ 
+              max-width: calc(100% - 40px); /* 避免太窄螢幕擠爆 */ 
+              margin: 0 auto; /* 讓整個區塊在背景圖中置中 */ 
+              text-align: left; /* 內容左對齊 → 標題與三行會有同一條左邊線 */ }
+    h1{
+          font-size: 36px; color: #fff; /* 原本是 #111，改成白色 */
+          font-weight: bold; 
+          /*margin-bottom: 40px; text-shadow: 0 2px 6px rgba(0,0,0,.45);/* 可選，讓白字更清楚 */ 
+      }
+    header{padding:16px 20px;color:#fff;}
     main{max-width:720px;margin:24px auto;padding:0 16px;}
-    .card{background:#fff;border-radius:10px;padding:20px;box-shadow:0 6px 16px rgba(0,0,0,.08);}
-    .row{margin-bottom:12px;}
+    .card{background:#ffffffce;border-radius:10px;padding:20px;box-shadow:0 6px 16px rgba(0,0,0,.08);}
+    .row1{margin-bottom:12px;}
+    .row2{margin-bottom:12px;text-align: left;}
     .btn{appearance:none;border:0;border-radius:8px;padding:10px 16px;background:#0b79d0;color:#fff;font-weight:600;cursor:pointer;}
     input[type="file"]{width:100%;}
   </style>
 </head>
 <body>
 <header>
-  <h1>音訊 → MIDI → 單音編輯</h1>
+  
 </header>
 <main>
-  <div class="card">
-    <form action="/audio-upload" method="post" enctype="multipart/form-data">
-      <div class="row">
-        <label>選擇音訊檔（.mp3 / .wav）</label><br>
-        <input type="file" name="file" required>
-      </div>
+  <div class="container">
+    <h1>音訊轉換簡譜系統</h1>
+    <div class="card">
+      <form action="/audio-upload" method="post" enctype="multipart/form-data">
+        <div class="row1"
+          <label>選擇音訊檔（.mp3 / .wav）</label><br>
+          <input type="file" name="file" required>
+        </div>
 
-      <div class="row">
-        <label>
-          <input type="checkbox" name="remove_accompaniment">
-          消除伴奏（使用 Demucs 抽出人聲再轉 MIDI）
-        </label>
-      </div>
+        <div class="row2">
+          <label>
+            <input type="checkbox" name="remove_accompaniment">
+            消除伴奏（使用 Demucs 抽出人聲再轉 MIDI）
+          </label>
+        </div>
+
       
-      <button type="submit" class="btn">上傳並建立 MIDI</button>
-    </form>
-    <p style="font-size:13px;color:#555;margin-top:12px;">
-      上傳後會自動轉成 MIDI，並進入鋼琴捲軸介面讓你手動調整音符，再輸出成單音 MIDI 檔下載。
-    </p>
+        <button type="submit" class="btn">上傳並建立 MIDI</button>
+      </form>
+      <p style="font-size:13px;color:#555;margin-top:12px;">
+        上傳後會自動轉成 MIDI，並進入鋼琴捲軸介面讓你手動調整音符，再輸出成單音 MIDI 檔下載。
+      </p>
+      <div class="content">
+    </div>
   </div>
 </main>
 </body>
