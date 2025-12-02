@@ -91,21 +91,8 @@
   </div>
 </header>
 
-<<<<<<< HEAD
 <!-- 初始 notes JSON -->
 <script id="notes-data" type="application/json">{{ notes_json|safe }}</script>
-=======
-<!-- 用來把原始檔名傳回後端 -->
-<div id="meta" data-filename="{{ filename }}"></div>
-
-<div id="cfg"
-     data-bpm="{{ bpm }}"
-     data-num="{{ numerator }}"
-     data-den="{{ denominator }}"
-     data-upq="{{ units_per_quarter }}">
-</div>
-<script id="init-notes" type="application/json">{{ notes_json|safe }}</script>
->>>>>>> 971bdf6b4c9b62dbaad1f6fbea682fe0ac17ed4d
 
 <div class="wrap">
   <div class="editor">
@@ -128,49 +115,18 @@
         <li>橫向格線等距（每格約 0.05 秒）</li>
         <li>左側顯示對應音階（C3, C4...）。</li>
       </ul>
-<<<<<<< HEAD
       <p>※ 送回後端時會自動單音化（遇重疊即切斷前一音）。</p>
-=======
-      <p>※ 傳回後端時會再轉成 MIDI 並產生簡譜 PDF。</p>
->>>>>>> 971bdf6b4c9b62dbaad1f6fbea682fe0ac17ed4d
     </div>
   </div>
 </div>
 
 <script>
-<<<<<<< HEAD
   // 常數：要跟 app.py 的 SEC_PER_UNIT 對應
   const UNITS_PER_SECOND = 20;   // 1 秒 20 格 → 每格 0.05 秒
   const UNITS_PER_BAR = 80;      // 略定義一小節為 4 秒
   const DEFAULT_NOTE_UNITS = 20; // 新增音符預設 1 秒長
 
   const INIT_NOTES = JSON.parse(document.getElementById('notes-data').textContent || '[]');
-=======
-// ===== 從 DOM 讀設定 =====
-const cfgEl = document.getElementById('cfg');
-const UNITS_PER_QUARTER = parseInt(cfgEl.dataset.upq, 10);
-const BPM = parseFloat(cfgEl.dataset.bpm || '80');
-const NUM = parseInt(cfgEl.dataset.num || '4', 10);
-const DEN = parseInt(cfgEl.dataset.den || '4', 10);
-const INIT_NOTES = JSON.parse(document.getElementById('init-notes').textContent || '[]');
-document.getElementById('upqText').textContent = String(UNITS_PER_QUARTER);
-
-// 檔名：給 /save-midi 用來決定資料夾名稱
-const META = document.getElementById('meta');
-const SONG_NAME = META ? (META.dataset.filename || 'song') : 'song';
-
-// ===== 縮放 =====
-let SCALE = 1.2;
-const zoomInput = document.getElementById('zoom');
-const zoomLabel = document.getElementById('zoomLabel');
-function updateZoomLabel(){ zoomLabel.textContent = Math.round(SCALE*100)+'%'; }
-zoomInput.addEventListener('input', ()=>{
-  SCALE = parseInt(zoomInput.value, 10) / 100;
-  updateZoomLabel();
-  rebuildSizeAndRedraw();
-});
-updateZoomLabel();
->>>>>>> 971bdf6b4c9b62dbaad1f6fbea682fe0ac17ed4d
 
   // Piano-roll 視覺參數
   const R = {
@@ -327,7 +283,6 @@ updateZoomLabel();
     return null;
   }
 
-<<<<<<< HEAD
   rollCanvas.addEventListener('mousedown', (e)=>{
     const {x, y} = getMousePos(e);
 
@@ -350,22 +305,6 @@ updateZoomLabel();
         offLane: yToLane(y) - pitchToLane(n.pitch),
       };
     }
-=======
-// ===== 送回後端，產生 MIDI + PDF（跳到 result.html）=====
-document.getElementById('exportBtn').addEventListener('click', async () => {
-  notes = notes.filter(n => n.end > n.start);
-  const payload = {
-    notes,
-    bpm: BPM,
-    numerator: NUM,
-    denominator: DEN,
-    filename: SONG_NAME,
-  };
-  const res = await fetch('/save-midi', {
-    method:'POST',
-    headers:{'Content-Type':'application/json'},
-    body: JSON.stringify(payload),
->>>>>>> 971bdf6b4c9b62dbaad1f6fbea682fe0ac17ed4d
   });
 
   window.addEventListener('mousemove', (e)=>{
