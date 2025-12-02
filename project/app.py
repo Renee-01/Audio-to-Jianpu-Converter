@@ -1,6 +1,7 @@
 from flask import Flask, render_template, request, send_file
 from MIDI_to_notation import convert_midi_to_jianpu
 import os, json
+import re
 from werkzeug.utils import secure_filename
 from Audio_to_MIDI import audio_to_midi
 import pretty_midi
@@ -54,7 +55,6 @@ def upload_file():
 
 
     # 3) 音訊 -> MIDI
-
     remove_accompaniment = (request.form.get("remove_accompaniment") == "on")
 
     try:
@@ -135,7 +135,7 @@ def save_midi():
     # 2) 存成新的 MIDI 檔（/uploads/{曲目名稱}{時間戳}/）
     title = data.get("filename") or data.get("title") or "song"
 
-    import re
+
     safe_title = re.sub(r'[^0-9A-Za-z\u4e00-\u9fff]+', '_', title).strip('_')
     if not safe_title:
         safe_title = "song"

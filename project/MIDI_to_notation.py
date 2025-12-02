@@ -238,7 +238,7 @@ def convert_midi_to_jianpu(midi_path: str) -> dict:
 
     # 3) 在 MIDI 同一層建立 output_YYYY-MM-DD_HHMM 資料夾
     ts = datetime.now().strftime("%Y-%m-%d_%H%M")
-    out_dir = midi_path.parent / f"output_{ts}"
+    out_dir = midi_path.parent
     out_dir.mkdir(parents=True, exist_ok=True)
 
     # 4) PDF 檔名：<原檔名>.jianpu.pdf

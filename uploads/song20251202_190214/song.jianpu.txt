@@ -1,0 +1,42 @@
+%% tempo: 4=161
+
+1=C
+
+3/4
+
+
+
+LP:
+
+\set Score.barNumberVisibility = #all-bar-numbers-visible
+
+\override Score.BarNumber.font-size = #-6
+
+\override Score.BarNumber.break-visibility = #end-of-line-invisible
+
+\override Score.NonMusicalPaperColumn.padding = #2
+
+:LP
+
+
+
+ 5 3 3 (  3 ) 4 2  2 - 1  2 3 4 \break
+
+
+
+ 5 5 5 (  5 ) 5 3  3 - 4  2 2 - \break
+
+
+
+ 1 3 5  5 1 5  0 - -  0 0 1 
+
+LP:
+
+\bar "|."
+
+:LP
+
+\break
+
+
+

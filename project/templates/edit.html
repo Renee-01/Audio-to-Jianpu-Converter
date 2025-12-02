@@ -121,6 +121,8 @@
 </div>
 
 <script>
+  const ORIGINAL_FILENAME = {{ filename | tojson }};
+  
   // 常數：要跟 app.py 的 SEC_PER_UNIT 對應
   const UNITS_PER_SECOND = 20;   // 1 秒 20 格 → 每格 0.05 秒
   const UNITS_PER_BAR = 80;      // 略定義一小節為 4 秒
@@ -350,17 +352,22 @@
     }
   });
 
+
   // 送回後端
-  document.getElementById('exportBtn').addEventListener('click', async ()=>{
-    notes = notes.filter(n => n.end > n.start);
-    const res = await fetch('/save-midi', {
-      method: 'POST',
-      headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({ notes })
-    });
-    const html = await res.text();
-    document.open(); document.write(html); document.close();
+document.getElementById('exportBtn').addEventListener('click', async ()=>{
+  notes = notes.filter(n => n.end > n.start);
+  const res = await fetch('/save-midi', {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({
+      notes,
+      filename: ORIGINAL_FILENAME,
+    }),
   });
+  const html = await res.text();
+  document.open(); document.write(html); document.close();
+});
+
 
   drawAll();
 </script>

@@ -115,7 +115,7 @@ def main():
 
     print(f"✅ 載入檔案：{os.path.basename(audio_path)}")
 
-    audio_to_midi(audio_path, remove_accompaniment=True)  # 這裡不消伴奏（remove_accompaniment=False）
+    audio_to_midi(audio_path, remove_accompaniment=False)  # 這裡不消伴奏（remove_accompaniment=False）
 
 
 if __name__ == "__main__":
