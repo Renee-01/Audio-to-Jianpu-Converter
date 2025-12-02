@@ -43,14 +43,7 @@ MUSICXML_TO_JIANPU_CONVERTER = os.getenv(
     "MUSICXML_TO_JIANPU_CONVERTER",
     r"D:\Audio-to-Jianpu-Converter\musicxml_to_jianpu\converter.py",
 )
-<<<<<<< HEAD
  
-=======
-
-# jianpu-ly 指令（如果在 venv 裡有裝，通常就叫 jianpu-ly）
-JIANPU_LY_CMD = os.getenv("JIANPU_LY_CMD", r"C:\Users\lulu1\anaconda3\envs\pitch-env\Scripts\jianpu-ly.exe")
-
->>>>>>> 971bdf6b4c9b62dbaad1f6fbea682fe0ac17ed4d
 # lilypond 指令名
 LILYPOND_CMD = os.getenv("LILYPOND_CMD", r"C:\lilypond-2.24.4\bin\lilypond.exe")
 

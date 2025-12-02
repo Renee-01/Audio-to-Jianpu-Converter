@@ -4,7 +4,6 @@
   <meta charset="UTF-8" />
   <title>音訊轉單音 MIDI 編輯器</title>
   <style>
-<<<<<<< HEAD
     body{font-family:ui-sans-serif,system-ui,"Segoe UI","Noto Sans TC",Arial;margin:0;background:#f7f7f7;}
     header{padding:16px 20px;background:#222;color:#fff;}
     main{max-width:720px;margin:24px auto;padding:0 16px;}
@@ -30,121 +29,6 @@
     <p style="font-size:13px;color:#555;margin-top:12px;">
       上傳後會自動轉成 MIDI，並進入鋼琴捲軸介面讓你手動調整音符，再輸出成單音 MIDI 檔下載。
     </p>
-=======
-    body {
-      margin: 0;
-      font-family: 'Segoe UI', sans-serif;
-      background-color: #bfaeae;
-      display: flex;
-      justify-content: center;
-      align-items: center;
-      height: 100vh;
-      flex-direction: column;
-    }
-
-    .container {
-      text-align: center;
-      background: url("{{ url_for('static', filename='images/Brown_Collage_Paper_Music_Presentation.png') }}") no-repeat center;
-      background-size: cover;
-      width: 600px;
-      height: 400px;
-      padding: 60px;
-      box-shadow: 0 0 20px rgba(0,0,0,0.2);
-    }
-    .content{
-      width: 520px;
-      max-width: calc(100% - 40px);
-      margin: 0 auto;
-      text-align: left;
-    }
-
-    h1 {
-      font-size: 36px;
-      color: #fff;
-      font-weight: bold;
-      margin-bottom: 40px;
-      text-shadow: 0 2px 6px rgba(0,0,0,.45);
-    }
-
-    .upload-btn {
-      padding: 14px 30px;
-      border: none;
-      border-radius: 30px;
-      background-color: #eee;
-      font-size: 16px;
-      font-weight: bold;
-      box-shadow: 2px 2px 5px rgba(0,0,0,0.2);
-      cursor: pointer;
-    }
-
-    .upload-btn:hover {
-      background-color: #ddd;
-    }
-
-    input[type="file"] { display: none; }
-
-    label[for="bpm"],
-    label[for="numerator"],
-    label[for="denominator"]{
-      display: block;
-      color: #fff;
-      margin: 10px 0 4px;
-    }
-
-    .upload-row{
-      text-align: center;
-      margin: 12px 0 20px;
-    }
-
-    /* ✅ 消除伴奏 checkbox 排版 */
-    .checkbox-row {
-      margin: 10px 0 18px;
-      color: #fff;
-      font-size: 14px;
-    }
-    .checkbox-row label {
-      cursor: pointer;
-    }
-    .checkbox-row input[type="checkbox"] {
-      margin-right: 6px;
-      vertical-align: middle;
-    }
-  </style>
-</head>
-<body>
-  <div class="container">
-    <div class="content">
-      <h1>音訊轉換簡譜系統</h1>
-
-      <form class="form-grid" action="/audio-upload" method="post" enctype="multipart/form-data">
-        <!-- 上傳按鈕 -->
-        <label for="file-upload" class="upload-btn">選擇 音訊(.mp3、.wav) 檔案</label>
-        <input id="file-upload" type="file" name="file" accept=".mp3,.wav" required />
-        <br><br>
-
-        <!-- ✅ 是否需要消除伴奏 -->
-        <div class="checkbox-row">
-          <label>
-            <input type="checkbox" name="remove_accompaniment" value="1">
-            需要消除伴奏（只保留人聲轉譜）
-          </label>
-        </div>
-
-        <!-- 這三個欄位現在 app 沒用到，但保留也無妨 -->
-        <label for="bpm">請輸入 BPM（預設 80）</label>
-        <input id="bpm" type="number" name="bpm" value="80" min="30" max="300" />
-        <br>
-        <label for="numerator">請輸入拍號分子 (預設=4)</label>
-        <input id="numerator" type="number" name="numerator" value="4" min="0" max="12" />
-        <br>
-        <label for="denominator">請輸入拍號分母 (預設=4)</label>
-        <input id="denominator" type="number" name="denominator" value="4" min="0" max="12" />
-        <br><br>
-
-        <button type="submit" class="submit-btn">上傳並轉換</button>
-      </form>
-    </div>
->>>>>>> 971bdf6b4c9b62dbaad1f6fbea682fe0ac17ed4d
   </div>
 </main>
 </body>
