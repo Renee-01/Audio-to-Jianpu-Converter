@@ -1,0 +1,50 @@
+%% tempo: 4=80
+
+1=C
+
+3/4
+
+
+
+LP:
+
+\set Score.barNumberVisibility = #all-bar-numbers-visible
+
+\override Score.BarNumber.font-size = #-6
+
+\override Score.BarNumber.break-visibility = #end-of-line-invisible
+
+\override Score.NonMusicalPaperColumn.padding = #2
+
+:LP
+
+
+
+ 7,, 1, 2,  3, 4, 5,  6, 7, 1  2 3 4 \break
+
+
+
+ 5 6 7  1' 2' 3'  4' 5' 6'  7' 1'' 2'' \break
+
+
+
+ 3'' 4'' 5''  6'' 7'' 6''  5'' 4'' 3''  2'' 1'' 7' \break
+
+
+
+ 6' 5' 4'  3' 2' 1'  7 6 5  4 3 2 \break
+
+
+
+ 1 7, 6,  5, 4, 3,  2, 1, 7,, (  7,, ) - 7,, 
+
+LP:
+
+\bar "|."
+
+:LP
+
+\break
+
+
+

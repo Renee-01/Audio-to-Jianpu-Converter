@@ -1,4 +1,5 @@
 from flask import Flask, render_template, request, send_file
+from MIDI_to_notation import convert_midi_to_jianpu
 import os, json
 from werkzeug.utils import secure_filename
 from Audio_to_MIDI import audio_to_midi
@@ -51,11 +52,16 @@ def upload_file():
     audio_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
     file.save(audio_path)
 
+
     # 3) 音訊 -> MIDI
+
+    remove_accompaniment = (request.form.get("remove_accompaniment") == "on")
+
     try:
         midi_path = audio_to_midi(
             audio_path,
             out_dir=app.config['UPLOAD_FOLDER'],
+             remove_accompaniment = remove_accompaniment,
         )
         midi_path = os.path.abspath(midi_path)
     except Exception as e:
@@ -114,7 +120,7 @@ def save_midi():
     if cur and cur["end"] > cur["start"]:
         mono.append(cur)
 
-    # 寫出單音 MIDI
+    # 1) 寫出單音 MIDI
     pm = pretty_midi.PrettyMIDI()
     inst = pretty_midi.Instrument(program=0)
     for n in mono:
@@ -126,11 +132,9 @@ def save_midi():
         ))
     pm.instruments.append(inst)
 
-        # 3) 存成新的 MIDI 檔（/uploads/{曲目名稱}{時間戳}/）
-    # 從前端資料拿曲目名稱（沒有就用預設 "song"）
+    # 2) 存成新的 MIDI 檔（/uploads/{曲目名稱}{時間戳}/）
     title = data.get("filename") or data.get("title") or "song"
 
-    # 簡單做一下檔名/資料夾名稱清洗：去掉奇怪字元，避免 Windows 爆炸
     import re
     safe_title = re.sub(r'[^0-9A-Za-z\u4e00-\u9fff]+', '_', title).strip('_')
     if not safe_title:
@@ -139,25 +143,48 @@ def save_midi():
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
     folder_name = f"{safe_title}{ts}"
 
-    # /uploads/{曲目名稱}{時間戳}/
     out_dir = os.path.join(app.config['UPLOAD_FOLDER'], folder_name)
     os.makedirs(out_dir, exist_ok=True)
 
-    # MIDI 檔名就叫 {曲目名稱}.mid
     midi_out = os.path.join(out_dir, f"{safe_title}.mid")
     pm.write(midi_out)
 
+    midi_abs = os.path.abspath(midi_out)
     midi_rel = os.path.relpath(
-        os.path.abspath(midi_out),
+        midi_abs,
         start=os.path.abspath(app.config['UPLOAD_FOLDER'])
     ).replace(os.sep, '/')
 
+    # 3) 嘗試把 MIDI 轉成簡譜 PDF
+    pdf_rel = None
+    jianpu_text = None
+    pdf_error = None
+
+    try:
+        result = convert_midi_to_jianpu(midi_abs)  # 呼叫你在 MIDI_to_notation.py 寫的高階函式:contentReference[oaicite:2]{index=2}
+        jianpu_text = result.get("text_output")
+
+        pdf_abs = result.get("pdf_path")
+        if pdf_abs:
+            pdf_rel = os.path.relpath(
+                os.path.abspath(pdf_abs),
+                start=os.path.abspath(app.config['UPLOAD_FOLDER'])
+            ).replace(os.sep, '/')
+    except Exception as e:
+        pdf_error = str(e)
+        # 印在 console，方便你看是哪一段（MuseScore / musicxml_to_jianpu / jianpu-ly / LilyPond）爆掉
+        import sys
+        print("❌ 轉簡譜 PDF 失敗：", e, file=sys.stderr, flush=True)
+
+    # 4) 丟到 result.html
     return render_template(
         'result.html',
         filename=os.path.basename(midi_out),
-        midi_rel=midi_rel
+        midi_rel=midi_rel,
+        pdf_rel=pdf_rel,         # ← 給「PDF 樂譜」那一塊用
+        jianpu_text=jianpu_text, # ← 你如果想在頁面上顯示簡譜文字可以用
+        pdf_error=pdf_error,     # ← 轉檔失敗時顯示詳細錯誤（可選）
     )
-
 
 
 @app.route('/download/<path:subpath>')
@@ -175,6 +202,20 @@ def play_midi(subpath):
         return f"❌ 找不到檔案：{abs_path}", 404
     # audio/midi 或 audio/x-midi 都有人用，這裡先用 audio/midi
     return send_file(abs_path, mimetype='audio/midi', as_attachment=False)
+
+@app.route('/view/<path:subpath>')
+def view_file(subpath):
+    abs_path = os.path.abspath(os.path.join(app.config['UPLOAD_FOLDER'], subpath))
+    if not os.path.isfile(abs_path):
+        return f"❌ 找不到檔案：{abs_path}", 404
+
+    # 簡單用副檔名判斷 MIME type
+    ext = os.path.splitext(abs_path)[1].lower()
+    if ext == ".pdf":
+        return send_file(abs_path, mimetype="application/pdf", as_attachment=False)
+
+    # 其他檔案就單純 inline 回去
+    return send_file(abs_path, as_attachment=False)
 
 
 if __name__ == '__main__':

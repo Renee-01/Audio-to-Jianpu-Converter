@@ -24,6 +24,14 @@
         <label>選擇音訊檔（.mp3 / .wav）</label><br>
         <input type="file" name="file" required>
       </div>
+
+      <div class="row">
+        <label>
+          <input type="checkbox" name="remove_accompaniment">
+          消除伴奏（使用 Demucs 抽出人聲再轉 MIDI）
+        </label>
+      </div>
+      
       <button type="submit" class="btn">上傳並建立 MIDI</button>
     </form>
     <p style="font-size:13px;color:#555;margin-top:12px;">

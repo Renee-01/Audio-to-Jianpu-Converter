@@ -4,54 +4,67 @@
   <meta charset="UTF-8" />
   <title>轉換結果</title>
   <style>
-    body{
-      font-family:ui-sans-serif,system-ui,"Segoe UI","Noto Sans TC",Arial;
-      margin:0;
-      background:#f7f7f7;
+    body {
+      font-family: ui-sans-serif, system-ui, "Segoe UI", "Noto Sans TC", Arial;
+      margin: 0;
+      background: #f7f7f7;
     }
-    header{
-      display:flex;
-      justify-content:space-between;
-      align-items:center;
-      padding:12px 16px;
-      background:#222;
-      color:#fff;
+    header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 12px 16px;
+      background: #222;
+      color: #fff;
     }
-    main{
-      max-width:980px;
-      margin:16px auto;
-      padding:0 16px;
+    main {
+      max-width: 980px;
+      margin: 16px auto;
+      padding: 0 16px;
     }
-    .card{
-      background:#fff;
-      border-radius:10px;
-      box-shadow:0 6px 16px rgba(0,0,0,.08);
-      padding:16px;
-      margin-bottom:16px;
+    .card {
+      background: #fff;
+      border-radius: 10px;
+      box-shadow: 0 6px 16px rgba(0, 0, 0, .08);
+      padding: 16px;
+      margin-bottom: 16px;
     }
-    .btn{
-      display:inline-block;
-      margin-right:8px;
-      margin-top:8px;
-      padding:10px 14px;
-      border-radius:8px;
-      background:#0b79d0;
-      color:#fff;
-      text-decoration:none;
-      font-weight:600;
+    .btn {
+      display: inline-block;
+      margin-right: 8px;
+      margin-top: 8px;
+      padding: 10px 14px;
+      border-radius: 8px;
+      background: #0b79d0;
+      color: #fff;
+      text-decoration: none;
+      font-weight: 600;
     }
-    .pdf-wrapper{
-      width:100%;
-      height:650px;
-      border:1px solid #ccc;
-      border-radius:8px;
-      overflow:hidden;
-      margin-top:8px;
+    .btn.secondary {
+      background: #555;
     }
-    .pdf-wrapper iframe{
-      width:100%;
-      height:100%;
-      border:none;
+    .pdf-wrapper {
+      width: 100%;
+      height: 650px;
+      border: 1px solid #ccc;
+      border-radius: 8px;
+      overflow: hidden;
+      margin-top: 8px;
+    }
+    .pdf-wrapper embed,
+    .pdf-wrapper iframe {
+      width: 100%;
+      height: 100%;
+      border: none;
+    }
+    .jianpu-block {
+      margin-top: 8px;
+      padding: 8px 10px;
+      border-radius: 6px;
+      background: #f3f3f3;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      white-space: pre-wrap;
+      word-break: break-all;
     }
   </style>
 </head>
@@ -63,22 +76,42 @@
 
 <main>
 
-  <!-- PDF 卡片 -->
+  <!-- MIDI 檔案卡片 -->
+  <div class="card">
+    <h3>MIDI 檔案</h3>
+    {% if midi_rel %}
+      <p>已產生編輯後的 MIDI 檔。</p>
+      <div>
+        <a class="btn secondary" href="{{ url_for('download_file', subpath=midi_rel) }}">下載 MIDI 檔</a>
+      </div>
+    {% else %}
+      <p>⚠️ 目前沒有可下載的 MIDI 檔。</p>
+    {% endif %}
+  </div>
+
+  <!-- PDF 樂譜卡片 -->
   <div class="card">
     <h3>PDF 樂譜</h3>
     <div>
       {% if pdf_rel %}
         <div class="pdf-wrapper">
-          <iframe src="{{ url_for('view_file', subpath=pdf_rel) }}"></iframe>
+          <!-- 這裡用 view_file 讓 PDF 以 inline 顯示 -->
+          <embed
+              src="{{ url_for('view_file', subpath=pdf_rel) }}"
+              type="application/pdf">
         </div>
-        <a class="btn" href="{{ url_for('download_file', subpath=pdf_rel) }}">下載 PDF</a>
+        <div>
+          <a class="btn secondary" href="{{ url_for('download_file', subpath=pdf_rel) }}">下載 PDF 樂譜</a>
+        </div>
       {% else %}
-        <p>⚠️ 目前沒有 PDF。若一直失敗，可以回編輯器稍微調整音長、或檢查產出的 <code>.ly</code>/<code>.txt</code> 檔案。</p>
+        <p>⚠️ 目前沒有 PDF。若一直失敗，可以回編輯器稍微調整音長、或檢查產出的 .ly/.txt 檔案。</p>
+        {% if pdf_error %}
+          <pre style="white-space: pre-wrap;">{{ pdf_error }}</pre>
+        {% endif %}
       {% endif %}
     </div>
   </div>
 
-  
   <!-- 回首頁 -->
   <div class="card">
     <a class="btn" href="{{ url_for('index') }}">回首頁重新上傳</a>
