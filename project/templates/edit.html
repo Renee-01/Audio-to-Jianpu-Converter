@@ -78,7 +78,35 @@
   .row{display:flex;gap:10px;align-items:center;margin:6px 0}
   .hint{font-size:13px;color:#555}
   ul{margin:6px 0 0 16px;padding:0}
-</style>
+
+  /* 工具列 */
+  .tool-bar{
+    margin-top:8px;
+    display:flex;
+    flex-wrap:wrap;
+    gap:6px;
+    align-items:center;
+    font-size:13px;
+  }
+  .tool-label{
+    color:#555;
+  }
+  .tool-btn{
+    appearance:none;
+    border-radius:6px;
+    border:1px solid #ccc;
+    background:#fff;
+    padding:4px 10px;
+    font-size:12px;
+    cursor:pointer;
+  }
+  .tool-btn.tool-active{
+    border-color:#0b79d0;
+    background:#e6f2ff;
+    color:#0b79d0;
+    font-weight:600;
+  }
+  </style>
 </head>
 <body>
 <header>
@@ -92,7 +120,6 @@
     <button id="exportBtn" class="btn">輸出成單音 MIDI</button>
   </div>
 </header>
-
 
 <!-- 初始 notes JSON -->
 <script id="notes-data" type="application/json">{{ notes_json|safe }}</script>
@@ -113,22 +140,28 @@
     <div class="hint">
       <ul>
         <li>拖曳音符移動；拖拉左右邊緣可改長度</li>
-        <li>空白鍵切換「新增模式」；點擊格子新增音符</li>
-        <li>非新增模式下，點一下音符可刪除</li>
         <li>橫向格線等距（每格約 0.05 秒）</li>
         <li>左側顯示對應音階（C3, C4...）。</li>
       </ul>
       <p>※ 送回後端時會自動單音化（遇重疊即切斷前一音）。</p>
+    </div>
+
+    <!-- 工具列 -->
+    <div class="tool-bar">
+      <span class="tool-label">工具：</span>
+      <button id="tool-edit"   class="tool-btn tool-active">一般編輯</button>
+      <button id="tool-add"    class="tool-btn">新增音符</button>
+      <button id="tool-delete" class="tool-btn">刪除音符</button>
     </div>
   </div>
 </div>
 
 <script>
   const ORIGINAL_FILENAME = {{ filename | tojson }};
-  
+
   // 常數：要跟 app.py 的 SEC_PER_UNIT 對應
   const UNITS_PER_SECOND = 20;   // 1 秒 20 格 → 每格 0.05 秒
-  const UNITS_PER_BAR = 80;      // 略定義一小節為 4 秒
+  const UNITS_PER_BAR = 80;      // 一小節 4 秒
   const DEFAULT_NOTE_UNITS = 20; // 新增音符預設 1 秒長
 
   const INIT_NOTES = JSON.parse(document.getElementById('notes-data').textContent || '[]');
@@ -147,7 +180,6 @@
   const pianoCanvas = document.getElementById('piano');
   const rollContainer = document.querySelector('.roll-container');
 
-
   // 設定鋼琴捲軸尺寸
   rollCanvas.width  = R.unitW * R.unitsPerBar * R.bars;
   rollCanvas.height = R.laneH * R.lanes;
@@ -163,10 +195,13 @@
   const rollCtx  = rollCanvas.getContext('2d');
   const pianoCtx = pianoCanvas.getContext('2d');
 
-  // 狀態
+  // ------- 狀態 -------
   let notes = INIT_NOTES.map(n => ({...n})); // {pitch,start,end}
-  let modeAdd = false; // 新增模式
-  let dragging = null; // {idx, edge:"left"|"right"|null, offU, offLane}
+  let modeAdd = false;     // 是否為「新增音符」模式
+  let modeDelete = false;  // 是否為「刪除音符」模式
+  let dragging = null;     // {idx, edge:"left"|"right"|null, offU, offLane}
+
+  // 播放相關狀態
   let audioCtx = null;
   let isPlaying = false;
   let scheduledNodes = [];
@@ -174,6 +209,51 @@
   let playStartUnit = 0;    // 從哪一格開始播
   let playStartTime = 0;    // AudioContext 開始播的時間戳
   let playAnimId = null;    // requestAnimationFrame id
+
+  // ------- 工具列按鈕 -------
+  const toolEditBtn   = document.getElementById('tool-edit');
+  const toolAddBtn    = document.getElementById('tool-add');
+  const toolDeleteBtn = document.getElementById('tool-delete');
+
+  function setTool(mode){
+    // mode: 'edit' | 'add' | 'delete'
+    modeAdd    = (mode === 'add');
+    modeDelete = (mode === 'delete');
+
+    [toolEditBtn, toolAddBtn, toolDeleteBtn].forEach(btn=>{
+      if(!btn) return;
+      btn.classList.remove('tool-active');
+    });
+    if(mode === 'add')         toolAddBtn.classList.add('tool-active');
+    else if(mode === 'delete') toolDeleteBtn.classList.add('tool-active');
+    else                       toolEditBtn.classList.add('tool-active');
+
+    // 切工具時重畫一次（新增模式會套淡藍色遮罩）
+    drawAll();
+  }
+
+  toolEditBtn .addEventListener('click', ()=> setTool('edit'));
+  toolAddBtn  .addEventListener('click', ()=> setTool('add'));
+  toolDeleteBtn.addEventListener('click', ()=> setTool('delete'));
+
+  // ------- 座標 / 音名工具函式 -------
+  const NOTE_NAMES = ['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'];
+
+  function midiToNoteName(p){
+    const name = NOTE_NAMES[p % 12];
+    const octave = Math.floor(p / 12) - 1; // MIDI 60 → C4
+    return name + octave;
+  }
+
+  function pitchToLane(p){ return (R.pitchMin + R.lanes - 1) - p; }
+  function laneToPitch(l){ return (R.pitchMin + R.lanes - 1) - l; }
+  function xToUnit(x){ return Math.max(0, Math.round(x / R.unitW)); }
+  function yToLane(y){ return Math.max(0, Math.min(R.lanes-1, Math.floor(y / R.laneH))); }
+
+  // 預設是一般編輯（此時 NOTE_NAMES 等都已經初始化）
+  setTool('edit');
+
+  // ------- 座標 / 音名工具函式 -------
   function pitchToLane(p){ return (R.pitchMin + R.lanes - 1) - p; }
   function laneToPitch(l){ return (R.pitchMin + R.lanes - 1) - l; }
   function xToUnit(x){ return Math.max(0, Math.round(x / R.unitW)); }
@@ -190,14 +270,7 @@
     };
   }
 
-  const NOTE_NAMES = ['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'];
-  function midiToNoteName(p){
-    const name = NOTE_NAMES[p % 12];
-    const octave = Math.floor(p / 12) - 1; // MIDI 60 → C4
-    return name + octave;
-  }
-
-  // 畫左側音階尺
+  // ------- 畫左側音階尺 -------
   function drawPiano(){
     const w = pianoCanvas.width;
     const h = pianoCanvas.height;
@@ -230,7 +303,7 @@
     }
   }
 
-  // 畫右側鋼琴捲軸
+  // ------- 畫右側鋼琴捲軸 -------
   function drawRoll(){
     rollCtx.clearRect(0,0,rollCanvas.width,rollCanvas.height);
 
@@ -247,7 +320,6 @@
     for(let u=0; u<=totalUnits; u++){
       const x = u * R.unitW;
 
-      // 垂直格線
       rollCtx.beginPath();
       rollCtx.moveTo(x, 0);
       rollCtx.lineTo(x, rollCanvas.height);
@@ -267,7 +339,7 @@
       }
     }
 
-     // 音符
+    // 音符
     notes.forEach(n=>{
       const x  = n.start * R.unitW;
       const w  = Math.max(1, (n.end - n.start) * R.unitW);
@@ -286,8 +358,8 @@
       rollCtx.fillRect(0, 0, rollCanvas.width, rollCanvas.height);
     }
 
-    // 播放游標（直線）
-    if (playHeadUnit !== null) {
+    // 紅色播放線（playHeadUnit 由滑鼠或播放功能控制）
+    if (typeof playHeadUnit === 'number') {
       const x = playHeadUnit * R.unitW + 0.5;
       rollCtx.beginPath();
       rollCtx.moveTo(x, 0);
@@ -305,6 +377,7 @@
     drawRoll();
   }
 
+  // ------- 命中測試 -------
   function hitTest(x, y){
     for(let i=notes.length-1;i>=0;i--){
       const n = notes[i];
@@ -320,9 +393,14 @@
     return null;
   }
 
+  // ------- 滑鼠事件：新增 / 移動 / 改長度 / 移動紅線 -------
   rollCanvas.addEventListener('mousedown', (e)=>{
     const {x, y} = getMousePos(e);
 
+    // 刪除模式下由 click 事件處理，這裡不做事
+    if (modeDelete) return;
+
+    // 新增模式：點哪裡就加哪裡
     if(modeAdd){
       const lane = yToLane(y);
       const pitch = laneToPitch(lane);
@@ -332,8 +410,10 @@
       return;
     }
 
+    // 一般編輯模式
     const hit = hitTest(x,y);
     if(hit){
+      // 點到音符 → 準備拖曳 / 拉長縮短
       const n = notes[hit.idx];
       dragging = {
         idx: hit.idx,
@@ -341,6 +421,10 @@
         offU: xToUnit(x) - n.start,
         offLane: yToLane(y) - pitchToLane(n.pitch),
       };
+    }else{
+      // 點在空白處 → 移動播放紅線
+      playHeadUnit = xToUnit(x);
+      drawAll();
     }
   });
 
@@ -367,9 +451,9 @@
 
   window.addEventListener('mouseup', ()=> dragging=null);
 
-  // 點一下刪除（非新增模式）
+  // 點一下刪除（刪除模式）
   rollCanvas.addEventListener('click', (e)=>{
-    if(modeAdd) return;
+    if(!modeDelete) return;
     const {x, y} = getMousePos(e);
     const hit = hitTest(x,y);
     if(hit && !dragging){
@@ -378,19 +462,9 @@
     }
   });
 
-  // 空白鍵切換新增模式
-   window.addEventListener('keydown', (e)=>{
-    if(e.code === 'Space'){
-      e.preventDefault();
-      modeAdd = !modeAdd;
-      drawAll();
-    }
-  });
-
   // =========================
   // Web Audio 播放 + 播放游標
   // =========================
-
   function ensureAudioCtx() {
     if (!audioCtx) {
       const AC = window.AudioContext || window.webkitAudioContext;
@@ -472,18 +546,31 @@
     const now = ctx.currentTime + 0.05;
 
     const seq = [...notes].sort((a,b)=>a.start - b.start);
-    playStartUnit = seq[0].start;
-    const playEndUnit = seq.reduce((m,n)=>Math.max(m, n.end), seq[0].end);
+    // 播放起點：有紅線就從紅線，沒有就從第一個音符
+    const baseUnit = (typeof playHeadUnit === 'number')
+      ? playHeadUnit
+      : seq[0].start;
 
-    scheduledNodes = [];
-    isPlaying = true;
+    // 只保留「在起點之後還有聲音」的音符
+    const playable = seq.filter(n => n.end > baseUnit);
+    if (!playable.length) return;
+
+    playStartUnit = baseUnit;
     playStartTime = now;
-    playHeadUnit = playStartUnit;
+    isPlaying = true;
+    scheduledNodes = [];
+
+    // 紅線先跳到起點
+    playHeadUnit = baseUnit;
     drawAll();
 
-    seq.forEach(n=>{
-      const startSec = (n.start - playStartUnit) / UNITS_PER_SECOND;
-      const durSec   = Math.max(0.02, (n.end - n.start) / UNITS_PER_SECOND);
+    let maxEndUnit = baseUnit;
+
+    playable.forEach(n=>{
+      const startUnit = Math.max(n.start, baseUnit);
+      const startSec  = (startUnit - baseUnit) / UNITS_PER_SECOND;
+      const durSec    = (n.end - startUnit) / UNITS_PER_SECOND;
+      if (durSec <= 0) return;
 
       const osc  = ctx.createOscillator();
       const gain = ctx.createGain();
@@ -498,9 +585,11 @@
       osc.start(now + startSec);
       osc.stop(now + startSec + durSec);
       scheduledNodes.push(osc, gain);
+
+      if (n.end > maxEndUnit) maxEndUnit = n.end;
     });
 
-    startPlayheadAnimation(playEndUnit);
+    startPlayheadAnimation(maxEndUnit);
   }
 
   // 綁到按鈕
@@ -526,7 +615,6 @@
     const html = await res.text();
     document.open(); document.write(html); document.close();
   });
-
 
   drawAll();
 </script>
