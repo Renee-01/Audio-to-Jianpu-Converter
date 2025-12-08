@@ -87,9 +87,12 @@
     <div class="meta">檔案：{{ filename }}</div>
   </div>
   <div class="row">
+    <button id="playBtn" class="btn">▶ 播放目前旋律</button>
+    <button id="stopBtn" class="btn">⏹ 停止播放</button>
     <button id="exportBtn" class="btn">輸出成單音 MIDI</button>
   </div>
 </header>
+
 
 <!-- 初始 notes JSON -->
 <script id="notes-data" type="application/json">{{ notes_json|safe }}</script>
@@ -142,6 +145,8 @@
 
   const rollCanvas = document.getElementById('roll');
   const pianoCanvas = document.getElementById('piano');
+  const rollContainer = document.querySelector('.roll-container');
+
 
   // 設定鋼琴捲軸尺寸
   rollCanvas.width  = R.unitW * R.unitsPerBar * R.bars;
@@ -162,7 +167,13 @@
   let notes = INIT_NOTES.map(n => ({...n})); // {pitch,start,end}
   let modeAdd = false; // 新增模式
   let dragging = null; // {idx, edge:"left"|"right"|null, offU, offLane}
-
+  let audioCtx = null;
+  let isPlaying = false;
+  let scheduledNodes = [];
+  let playHeadUnit = null;  // 目前播放到第幾個單位格
+  let playStartUnit = 0;    // 從哪一格開始播
+  let playStartTime = 0;    // AudioContext 開始播的時間戳
+  let playAnimId = null;    // requestAnimationFrame id
   function pitchToLane(p){ return (R.pitchMin + R.lanes - 1) - p; }
   function laneToPitch(l){ return (R.pitchMin + R.lanes - 1) - l; }
   function xToUnit(x){ return Math.max(0, Math.round(x / R.unitW)); }
@@ -234,18 +245,29 @@
     // 垂直格線：小節、每秒、其餘
     const totalUnits = R.unitsPerBar * R.bars;
     for(let u=0; u<=totalUnits; u++){
+      const x = u * R.unitW;
+
+      // 垂直格線
       rollCtx.beginPath();
-      rollCtx.moveTo(u*R.unitW, 0);
-      rollCtx.lineTo(u*R.unitW, rollCanvas.height);
+      rollCtx.moveTo(x, 0);
+      rollCtx.lineTo(x, rollCanvas.height);
       let color = '#eee';
       if (u % R.unitsPerBar === 0) color = '#bbb';         // 小節
       else if (u % UNITS_PER_SECOND === 0) color = '#ddd'; // 每秒
       rollCtx.strokeStyle = color;
       rollCtx.lineWidth = (u % R.unitsPerBar === 0) ? 1.2 : 1;
       rollCtx.stroke();
+
+      // 每 1 秒在上方標時間（0,1,2,...）
+      if (u % UNITS_PER_SECOND === 0) {
+        const sec = u / UNITS_PER_SECOND;
+        rollCtx.fillStyle = '#666';
+        rollCtx.font = '11px system-ui';
+        rollCtx.fillText(sec.toString(), x + 2, 12);
+      }
     }
 
-    // 音符
+     // 音符
     notes.forEach(n=>{
       const x  = n.start * R.unitW;
       const w  = Math.max(1, (n.end - n.start) * R.unitW);
@@ -262,6 +284,19 @@
     if(modeAdd){
       rollCtx.fillStyle = 'rgba(11,121,208,.08)';
       rollCtx.fillRect(0, 0, rollCanvas.width, rollCanvas.height);
+    }
+
+    // 播放游標（直線）
+    if (playHeadUnit !== null) {
+      const x = playHeadUnit * R.unitW + 0.5;
+      rollCtx.beginPath();
+      rollCtx.moveTo(x, 0);
+      rollCtx.lineTo(x, rollCanvas.height);
+      rollCtx.strokeStyle = isPlaying
+        ? 'rgba(220,0,0,0.9)'
+        : 'rgba(150,0,0,0.6)';
+      rollCtx.lineWidth = 2;
+      rollCtx.stroke();
     }
   }
 
@@ -344,7 +379,7 @@
   });
 
   // 空白鍵切換新增模式
-  window.addEventListener('keydown', (e)=>{
+   window.addEventListener('keydown', (e)=>{
     if(e.code === 'Space'){
       e.preventDefault();
       modeAdd = !modeAdd;
@@ -352,21 +387,145 @@
     }
   });
 
+  // =========================
+  // Web Audio 播放 + 播放游標
+  // =========================
 
-  // 送回後端
-document.getElementById('exportBtn').addEventListener('click', async ()=>{
-  notes = notes.filter(n => n.end > n.start);
-  const res = await fetch('/save-midi', {
-    method: 'POST',
-    headers: {'Content-Type':'application/json'},
-    body: JSON.stringify({
-      notes,
-      filename: ORIGINAL_FILENAME,
-    }),
+  function ensureAudioCtx() {
+    if (!audioCtx) {
+      const AC = window.AudioContext || window.webkitAudioContext;
+      audioCtx = new AC();
+    }
+    if (audioCtx.state === 'suspended') {
+      audioCtx.resume();
+    }
+  }
+
+  function midiToFreq(midi){
+    return 440 * Math.pow(2, (midi - 69) / 12);
+  }
+
+  function stopPlayback(){
+    if (!audioCtx) return;
+    isPlaying = false;
+    if (playAnimId) {
+      cancelAnimationFrame(playAnimId);
+      playAnimId = null;
+    }
+    scheduledNodes.forEach(node=>{
+      try{ node.disconnect(); }catch(e){}
+      if(node.stop){
+        try{ node.stop(0); }catch(e){}
+      }
+    });
+    scheduledNodes = [];
+    // 停止後保留最後的位置也可以，如果你想清掉就設為 null
+    // playHeadUnit = null;
+    drawAll();
+  }
+
+  function startPlayheadAnimation(playEndUnit){
+    if (!audioCtx) return;
+    const ctx = audioCtx;
+    const totalSec = (playEndUnit - playStartUnit) / UNITS_PER_SECOND;
+
+    function step(){
+      if (!isPlaying) return;
+      const elapsed = ctx.currentTime - playStartTime;
+      playHeadUnit = playStartUnit + elapsed * UNITS_PER_SECOND;
+
+      // 自動讓游標維持在可視範圍中
+      const x = playHeadUnit * R.unitW;
+      const viewStart = rollContainer.scrollLeft;
+      const viewWidth = rollContainer.clientWidth;
+      const viewEnd = viewStart + viewWidth;
+      const margin = viewWidth * 0.25;
+
+      if (x < viewStart + margin) {
+        rollContainer.scrollLeft = Math.max(0, x - margin);
+      } else if (x > viewEnd - margin) {
+        rollContainer.scrollLeft = x - viewWidth + margin;
+      }
+
+      drawAll();
+
+      if (elapsed <= totalSec + 0.1) {
+        playAnimId = requestAnimationFrame(step);
+      } else {
+        stopPlayback();
+      }
+    }
+
+    playAnimId = requestAnimationFrame(step);
+  }
+
+  function playCurrentNotes(){
+    if (!notes.length) return;
+
+    // 如果正在播，先停掉重新播
+    if (isPlaying) {
+      stopPlayback();
+    }
+    ensureAudioCtx();
+
+    const ctx = audioCtx;
+    const now = ctx.currentTime + 0.05;
+
+    const seq = [...notes].sort((a,b)=>a.start - b.start);
+    playStartUnit = seq[0].start;
+    const playEndUnit = seq.reduce((m,n)=>Math.max(m, n.end), seq[0].end);
+
+    scheduledNodes = [];
+    isPlaying = true;
+    playStartTime = now;
+    playHeadUnit = playStartUnit;
+    drawAll();
+
+    seq.forEach(n=>{
+      const startSec = (n.start - playStartUnit) / UNITS_PER_SECOND;
+      const durSec   = Math.max(0.02, (n.end - n.start) / UNITS_PER_SECOND);
+
+      const osc  = ctx.createOscillator();
+      const gain = ctx.createGain();
+
+      osc.type = 'sine';
+      osc.frequency.value = midiToFreq(n.pitch);
+      gain.gain.value = 0.18;
+
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+
+      osc.start(now + startSec);
+      osc.stop(now + startSec + durSec);
+      scheduledNodes.push(osc, gain);
+    });
+
+    startPlayheadAnimation(playEndUnit);
+  }
+
+  // 綁到按鈕
+  document.getElementById('playBtn').addEventListener('click', ()=>{
+    playCurrentNotes();
   });
-  const html = await res.text();
-  document.open(); document.write(html); document.close();
-});
+
+  document.getElementById('stopBtn').addEventListener('click', ()=>{
+    stopPlayback();
+  });
+
+  // 送回後端（原本就有）
+  document.getElementById('exportBtn').addEventListener('click', async ()=>{
+    notes = notes.filter(n => n.end > n.start);
+    const res = await fetch('/save-midi', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({
+        notes,
+        filename: ORIGINAL_FILENAME,
+      }),
+    });
+    const html = await res.text();
+    document.open(); document.write(html); document.close();
+  });
 
 
   drawAll();
