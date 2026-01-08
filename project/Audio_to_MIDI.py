@@ -62,20 +62,48 @@ def _extract_vocals_with_demucs(audio: Path) -> Path:
     return candidates[0]
 
 
+from pathlib import Path
+from typing import Optional
+
 def audio_to_midi(
     input_audio_path: str,
-    out_dir: Optional[str] = None,
+    out_dir: Optional[str] = None,   # 可以是目錄或完整 .mid 路徑
     remove_accompaniment: bool = False,
 ) -> str:
     """
     把音訊轉成 MIDI，回傳 MIDI 檔的絕對路徑。
 
-    remove_accompaniment = True 時：
+    - out_dir 可以是資料夾，也可以是完整的 .mid 路徑。
+    - remove_accompaniment = True 時：
         先用 Demucs 抽出人聲 vocals.wav，再用該人聲音檔跑 basic-pitch。
     """
     audio = Path(input_audio_path).expanduser().resolve()
     if not audio.exists():
         raise FileNotFoundError(f"音訊不存在：{audio}")
+
+    # --- 決定輸出路徑：支援「目錄」或「完整 .mid 檔」兩種用法 ---
+    if out_dir is None:
+        # 沒給 out_dir，就輸出在音檔同一個資料夾，用音檔檔名命名
+        out_dir_path = audio.parent
+        midi_path = out_dir_path / f"{audio.stem}.mid"
+    else:
+        out_path = Path(out_dir).expanduser().resolve()
+        if out_path.suffix.lower() == ".mid":
+            # 給的是完整 MIDI 檔路徑，例如 D:\...\uploads\15s.mid
+            midi_path = out_path
+            out_dir_path = midi_path.parent
+        else:
+            # 給的是資料夾，例如 D:\...\uploads
+            out_dir_path = out_path
+            midi_path = out_dir_path / f"{audio.stem}.mid"
+
+    # 確保輸出資料夾存在
+    out_dir_path.mkdir(parents=True, exist_ok=True)
+
+    # --- 快取：如果 MIDI 已經存在，直接回傳 ---
+    if midi_path.exists():
+        print(f"✅ 已存在 MIDI：{midi_path}，直接回傳，不重新轉檔。")
+        return str(midi_path)
 
     # 若需要消除伴奏，先用 Demucs 抽出人聲
     source_audio = audio
@@ -83,15 +111,13 @@ def audio_to_midi(
         vocals_path = _extract_vocals_with_demucs(audio)
         source_audio = vocals_path
 
-    # 決定輸出目錄（仍然以原始 audio 來命名 MIDI 檔）
-    out_dir_path = _ensure_out_dir(audio, out_dir)
-    midi_path = out_dir_path / f"{audio.stem}.mid"
-
-    # 執行 basic-pitch 轉檔（用 source_audio：可能是原檔或人聲 stem）
+    # 執行 basic-pitch 轉檔
     _, midi_data, _ = predict(str(source_audio))
     midi_data.write(str(midi_path))
+    print(f"🎵 已產生新的 MIDI：{midi_path}")
 
     return str(midi_path)
+
 
 
 def main():
